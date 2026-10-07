@@ -1,11 +1,15 @@
 import React from 'react';
 import { FileText, CheckCircle2, ShieldAlert, Award, FileCode, Check, ArrowRight } from 'lucide-react';
 
+import { FormattingOptions } from '../utils/docxExport';
+
 interface StandardsViewProps {
   onGoToEditor: () => void;
+  formattingOptions: FormattingOptions;
+  setFormattingOptions: React.Dispatch<React.SetStateAction<FormattingOptions>>;
 }
 
-export const StandardsView: React.FC<StandardsViewProps> = ({ onGoToEditor }) => {
+export const StandardsView: React.FC<StandardsViewProps> = ({ onGoToEditor, formattingOptions, setFormattingOptions }) => {
   return (
     <div className="max-w-5xl mx-auto space-y-8 py-4">
       {/* Header */}
@@ -39,24 +43,37 @@ export const StandardsView: React.FC<StandardsViewProps> = ({ onGoToEditor }) =>
 
           <div className="p-4 bg-slate-50 rounded-lg border border-slate-200/80 space-y-2.5 text-xs text-slate-700">
             <div className="flex justify-between items-center py-1 border-b border-slate-200">
-              <span className="font-medium">Khổ giấy tiêu chuẩn:</span>
-              <span className="font-semibold text-slate-900">A4 (210 mm × 297 mm)</span>
+              <span className="font-medium">Chế độ căn lề:</span>
+              <select 
+                className="text-xs border-slate-300 rounded font-semibold text-indigo-700 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                value={formattingOptions.margins.top === 850 ? 'normal' : 'narrow'}
+                onChange={(e) => {
+                  if (e.target.value === 'normal') {
+                    setFormattingOptions({...formattingOptions, margins: { top: 850, bottom: 850, left: 1417, right: 850 }});
+                  } else {
+                    setFormattingOptions({...formattingOptions, margins: { top: 720, bottom: 720, left: 720, right: 720 }});
+                  }
+                }}
+              >
+                <option value="normal">Chuẩn (Trái 2.5cm, còn lại 1.5cm)</option>
+                <option value="narrow">Hẹp (Tất cả 1.27cm)</option>
+              </select>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-slate-200">
               <span className="font-medium">Lề trái (Left margin):</span>
-              <span className="font-semibold text-indigo-700">2,5 cm (phục vụ đóng gáy hồ sơ)</span>
+              <span className="font-semibold text-slate-900">{formattingOptions.margins.left === 1417 ? '2,5 cm' : '1,27 cm'}</span>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-slate-200">
               <span className="font-medium">Lề phải (Right margin):</span>
-              <span className="font-semibold text-slate-900">1,5 cm</span>
+              <span className="font-semibold text-slate-900">{formattingOptions.margins.right === 850 ? '1,5 cm' : '1,27 cm'}</span>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-slate-200">
               <span className="font-medium">Lề trên (Top margin):</span>
-              <span className="font-semibold text-slate-900">1,5 cm</span>
+              <span className="font-semibold text-slate-900">{formattingOptions.margins.top === 850 ? '1,5 cm' : '1,27 cm'}</span>
             </div>
             <div className="flex justify-between items-center py-1">
               <span className="font-medium">Lề dưới (Bottom margin):</span>
-              <span className="font-semibold text-slate-900">1,5 cm</span>
+              <span className="font-semibold text-slate-900">{formattingOptions.margins.bottom === 850 ? '1,5 cm' : '1,27 cm'}</span>
             </div>
           </div>
         </div>
@@ -76,23 +93,64 @@ export const StandardsView: React.FC<StandardsViewProps> = ({ onGoToEditor }) =>
           <div className="p-4 bg-slate-50 rounded-lg border border-slate-200/80 space-y-2.5 text-xs text-slate-700">
             <div className="flex justify-between items-center py-1 border-b border-slate-200">
               <span className="font-medium">Phông chữ (Font family):</span>
-              <span className="font-semibold text-slate-900 font-serif">Times New Roman</span>
+              <select 
+                className="text-xs border-slate-300 rounded font-semibold text-indigo-700 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                value={formattingOptions.fontName}
+                onChange={(e) => setFormattingOptions({...formattingOptions, fontName: e.target.value})}
+              >
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Arial">Arial</option>
+                <option value="Calibri">Calibri</option>
+              </select>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-slate-200">
               <span className="font-medium">Cỡ chữ (Font size):</span>
-              <span className="font-semibold text-slate-900">13 pt (Tiêu đề 14 pt bold)</span>
+              <select 
+                className="text-xs border-slate-300 rounded font-semibold text-indigo-700 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                value={formattingOptions.fontSize}
+                onChange={(e) => setFormattingOptions({...formattingOptions, fontSize: Number(e.target.value)})}
+              >
+                <option value={22}>11 pt</option>
+                <option value={24}>12 pt</option>
+                <option value={26}>13 pt</option>
+                <option value={28}>14 pt</option>
+              </select>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-slate-200">
               <span className="font-medium">Khoảng cách dòng (Line spacing):</span>
-              <span className="font-semibold text-slate-900">Cách dòng đơn (Single)</span>
+              <select 
+                className="text-xs border-slate-300 rounded font-semibold text-indigo-700 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                value={formattingOptions.lineSpacing}
+                onChange={(e) => setFormattingOptions({...formattingOptions, lineSpacing: Number(e.target.value)})}
+              >
+                <option value={240}>Cách dòng đơn (Single)</option>
+                <option value={276}>Cách dòng 1.15</option>
+                <option value={360}>Cách dòng 1.5</option>
+              </select>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-slate-200">
               <span className="font-medium">Khoảng cách đoạn (Paragraph spacing):</span>
-              <span className="font-semibold text-indigo-700">Giãn đoạn 6 pt (After 6pt)</span>
+              <select 
+                className="text-xs border-slate-300 rounded font-semibold text-indigo-700 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                value={formattingOptions.paraSpacing}
+                onChange={(e) => setFormattingOptions({...formattingOptions, paraSpacing: Number(e.target.value)})}
+              >
+                <option value={0}>0 pt (Không giãn)</option>
+                <option value={120}>Giãn đoạn 6 pt</option>
+                <option value={240}>Giãn đoạn 12 pt</option>
+              </select>
             </div>
             <div className="flex justify-between items-center py-1">
               <span className="font-medium">Đánh số trang (Pagination):</span>
-              <span className="font-semibold text-slate-900">Đánh số ở chân trang tất cả các trang</span>
+              <select 
+                className="text-xs border-slate-300 rounded font-semibold text-indigo-700 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                value={formattingOptions.pageNumber}
+                onChange={(e) => setFormattingOptions({...formattingOptions, pageNumber: e.target.value as any})}
+              >
+                <option value="bottom-center">Chân trang (Giữa)</option>
+                <option value="bottom-right">Chân trang (Phải)</option>
+                <option value="none">Không đánh số</option>
+              </select>
             </div>
           </div>
         </div>

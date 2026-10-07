@@ -318,6 +318,8 @@ export default function App() {
 
         {activeNavTab === 'standards' && (
           <StandardsView
+            formattingOptions={formattingOptions}
+            setFormattingOptions={setFormattingOptions}
             onGoToEditor={() => {
               setActiveNavTab('editor');
               setCurrentStep(1);
