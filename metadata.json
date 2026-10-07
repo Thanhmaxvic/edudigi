@@ -1,0 +1,8 @@
+{
+  "name": "Remix EduDigi - Soạn giáo án tích hợp năng lực số",
+  "description": "Trợ lý số cho giáo viên mọi cấp học: Tích hợp chuẩn chỉ báo năng lực số, phân tích ảnh SGK \u0026 giáo án gốc, tự động bôi đỏ nội dung số mới và xuất file Word A4 chuẩn thể thức.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

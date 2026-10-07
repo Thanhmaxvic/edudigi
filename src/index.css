@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Times New Roman document preview styling */
+.font-times {
+  font-family: 'Tinos', 'Times New Roman', Times, serif;
+}
+
+/* Red highlighted span for newly integrated digital competency content (chỉ bôi đỏ không in đậm) */
+.edudigi-red-text {
+  color: #dc2626 !important;
+  font-weight: normal;
+  background-color: rgba(254, 242, 242, 0.4);
+  padding: 0 0.15rem;
+  border-radius: 0.15rem;
+}
+
+.edudigi-plain-mode .edudigi-red-text {
+  color: inherit !important;
+  font-weight: normal;
+  background-color: transparent !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* A4 Paper simulation preview */
+.a4-page-simulation {
+  width: 100%;
+  max-width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  background: white;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+  /* Standards: Left: 2.5cm, Top/Bottom/Right: 1.5cm */
+  padding-left: 2.5cm;
+  padding-right: 1.5cm;
+  padding-top: 1.5cm;
+  padding-bottom: 1.5cm;
+  box-sizing: border-box;
+  font-family: 'Tinos', 'Times New Roman', Times, serif;
+  font-size: 13pt;
+  line-height: 1.15;
+  color: #111827;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 1.5cm 1.5cm 1.5cm 2.5cm; /* top, right, bottom, left */
+  }
+
+  body {
+    background: white;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .a4-page-simulation {
+    box-shadow: none;
+    max-width: 100%;
+    min-height: auto;
+    padding: 0;
+    margin: 0;
+  }
+}
