@@ -62,16 +62,58 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
   const effectiveOldPlanImages = setOldPlanImages ? oldPlanImages : localOldPlanImages;
   const updateOldPlanImages = setOldPlanImages || setLocalOldPlanImages;
 
-  const addSgkImageFiles = (files: File[], source: 'upload' | 'paste') => {
-    files.forEach((file) => {
-      if (!file.type.startsWith('image/')) return;
-
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.readAsDataURL(file);
       reader.onload = (event) => {
-        const fullBase64 = event.target?.result as string;
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200;
+          const MAX_HEIGHT = 1600;
+          let width = img.width;
+          let height = img.height;
+  
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.6));
+          } else {
+            resolve(event.target?.result as string);
+          }
+        };
+        img.onerror = error => reject(error);
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const addSgkImageFiles = async (files: File[], source: 'upload' | 'paste') => {
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      
+      try {
+        const fullBase64 = await compressImage(file);
         const commaIndex = fullBase64.indexOf(',');
         const rawBase64 = commaIndex !== -1 ? fullBase64.substring(commaIndex + 1) : fullBase64;
-
+  
         setSgkImages((prev) => {
           const nextIndex = prev.length + 1;
           const cleanName =
@@ -81,15 +123,16 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
             {
               id: `${Date.now()}_sgk_${Math.random().toString(36).substr(2, 7)}`,
               name: `Trang SGK ${nextIndex}: ${cleanName}`,
-              mimeType: file.type,
+              mimeType: 'image/jpeg',
               data: rawBase64,
               previewUrl: fullBase64,
             },
           ];
         });
-      };
-      reader.readAsDataURL(file);
-    });
+      } catch (err) {
+        console.error('Error compressing image:', err);
+      }
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
