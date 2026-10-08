@@ -3,11 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, Plugin } from 'vite';
 import dotenv from 'dotenv';
-import {
-  handleGenerateLessonPlan,
-  handleAnalyzeSgk,
-  handleVerifyAccount,
-} from './src/server/geminiHandler';
+
 
 dotenv.config();
 
@@ -23,6 +19,8 @@ function serverApiPlugin(): Plugin {
           });
           req.on('end', async () => {
             try {
+              
+              const { handleVerifyAccount } = await import('./src/server/geminiHandler.ts');
               const { apiKey } = JSON.parse(body);
               const result = await handleVerifyAccount(apiKey);
               res.statusCode = 200;
@@ -45,6 +43,8 @@ function serverApiPlugin(): Plugin {
           });
           req.on('end', async () => {
             try {
+              
+              const { handleGenerateLessonPlan } = await import('./src/server/geminiHandler.ts');
               const payload = JSON.parse(body);
               const userApiKey = (req.headers['x-user-gemini-key'] as string) || payload.userApiKey;
               const userEmail = (req.headers['x-user-email'] as string) || payload.userEmail;
@@ -73,6 +73,8 @@ function serverApiPlugin(): Plugin {
           });
           req.on('end', async () => {
             try {
+              
+              const { handleAnalyzeSgk } = await import('./src/server/geminiHandler.ts');
               const { images, userApiKey: bodyKey } = JSON.parse(body);
               const userApiKey = (req.headers['x-user-gemini-key'] as string) || bodyKey;
               const result = await handleAnalyzeSgk(images, userApiKey);
@@ -97,6 +99,7 @@ function serverApiPlugin(): Plugin {
 
 export default defineConfig(() => {
   return {
+    build: { outDir: 'dist' },
     plugins: [react(), tailwindcss(), serverApiPlugin()],
     resolve: {
       alias: {
@@ -110,3 +113,7 @@ export default defineConfig(() => {
     },
   };
 });
+
+
+
+
