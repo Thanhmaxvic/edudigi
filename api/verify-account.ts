@@ -1,4 +1,5 @@
-﻿import { handleVerifyAccount } from '../src/server/geminiHandler.ts';
+export const maxDuration = 60;
+import { handleVerifyAccount } from '../src/server/geminiHandler';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
@@ -8,6 +9,7 @@ export default async function handler(req: any, res: any) {
     res.status(200).json(result);
   } catch (err: any) {
     console.error('Error verifying account:', err);
-    res.status(400).json({ error: err.message || 'Không thể xác thực tài khoản' });
+    res.status(400).json({ error: err.message || 'Kh�ng th? x�c th?c t�i kho?n' });
   }
 }
+

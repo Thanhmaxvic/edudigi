@@ -1,4 +1,5 @@
-﻿import { handleAnalyzeSgk } from '../src/server/geminiHandler.ts';
+export const maxDuration = 60;
+import { handleAnalyzeSgk } from '../src/server/geminiHandler';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
@@ -9,6 +10,7 @@ export default async function handler(req: any, res: any) {
     res.status(200).json(result);
   } catch (err: any) {
     console.error('Error analyzing SGK:', err);
-    res.status(500).json({ error: err.message || 'Lỗi phân tích sách giáo khoa' });
+    res.status(500).json({ error: err.message || 'L?i ph�n t�ch s�ch gi�o khoa' });
   }
 }
+

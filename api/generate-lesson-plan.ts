@@ -1,4 +1,5 @@
-﻿import { handleGenerateLessonPlan } from '../src/server/geminiHandler.ts';
+export const maxDuration = 60;
+import { handleGenerateLessonPlan } from '../src/server/geminiHandler';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
@@ -14,6 +15,7 @@ export default async function handler(req: any, res: any) {
     res.status(200).json(result);
   } catch (err: any) {
     console.error('Error generating lesson plan:', err);
-    res.status(500).json({ error: err.message || 'Lỗi xử lý kế hoạch bài dạy' });
+    res.status(500).json({ error: err.message || 'L?i x? l� k? ho?ch b�i d?y' });
   }
 }
+
