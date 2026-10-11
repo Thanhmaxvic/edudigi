@@ -1,7 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 
 const getGeminiClient = (userApiKey?: string) => {
-  const apiKey = (userApiKey && userApiKey.trim()) || process.env.GEMINI_API_KEY;
+  const envKey = typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : undefined;
+  const apiKey = (userApiKey && userApiKey.trim()) || envKey;
   if (!apiKey) {
     throw new Error(
       "Thầy/Cô vui lòng kết nối tài khoản Gmail và nhập khóa Gemini API cá nhân (miễn phí từ aistudio.google.com) để sử dụng, tránh làm cạn kiệt tài nguyên tín dụng của tác giả ứng dụng."

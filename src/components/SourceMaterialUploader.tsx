@@ -223,33 +223,44 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
       setIsAnalyzing(true);
       setAnalysisResult(null);
 
-      const response = await fetch('/api/analyze-sgk', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-gemini-key': teacherAccount?.apiKey || '',
-        },
-        body: JSON.stringify({
-          userApiKey: teacherAccount?.apiKey,
-          images: sgkImages.map((img) => ({ mimeType: img.mimeType, data: img.data })),
-        }),
-      });
+      let analysisResultText = '';
 
-      let data: any = null;
-      const textResponse = await response.text();
       try {
-        data = JSON.parse(textResponse);
-      } catch (_) {
-        if (!response.ok) {
-          throw new Error('Máy chủ đang bận hoặc quá thời gian xử lý. Vui lòng thử lại sau.');
+        const response = await fetch('/api/analyze-sgk', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-gemini-key': teacherAccount?.apiKey || '',
+          },
+          body: JSON.stringify({
+            userApiKey: teacherAccount?.apiKey,
+            images: sgkImages.map((img) => ({ mimeType: img.mimeType, data: img.data })),
+          }),
+        });
+
+        const textResponse = await response.text();
+        let data: any = null;
+        try {
+          data = JSON.parse(textResponse);
+        } catch (_) {}
+
+        if (response.ok && data?.analysis) {
+          analysisResultText = data.analysis;
         }
+      } catch (serverErr) {
+        console.warn('Server analyze-sgk unavailable or timed out, executing direct client-side analysis:', serverErr);
       }
 
-      if (!response.ok || !data || data.error) {
-        throw new Error(data?.error || 'Lỗi phân tích SGK từ máy chủ');
+      if (!analysisResultText) {
+        const { handleAnalyzeSgk } = await import('../server/geminiHandler');
+        const clientResult = await handleAnalyzeSgk(
+          sgkImages.map((img) => ({ mimeType: img.mimeType, data: img.data })),
+          teacherAccount?.apiKey
+        );
+        analysisResultText = clientResult.analysis;
       }
 
-      setAnalysisResult(data.analysis);
+      setAnalysisResult(analysisResultText);
     } catch (err: any) {
       alert('Lỗi đối chiếu nội dung SGK: ' + err.message);
     } finally {

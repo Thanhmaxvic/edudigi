@@ -168,35 +168,43 @@ export async function extractTextFromFile(
     const arrayBuffer = await file.arrayBuffer();
     const pdfBase64 = arrayBufferToBase64(arrayBuffer);
 
-    const res = await fetch('/api/extract-plan-pdf', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-gemini-key': userApiKey || '',
-      },
-      body: JSON.stringify({
-        pdfBase64,
-        userApiKey,
-      }),
-    });
+    let pdfText = '';
 
-    let data: any = null;
-    const textResponse = await res.text();
     try {
-      data = JSON.parse(textResponse);
-    } catch (_) {
-      if (!res.ok) {
-        throw new Error('Máy chủ đang bận hoặc quá thời gian xử lý khi đọc PDF. Vui lòng thử lại.');
+      const res = await fetch('/api/extract-plan-pdf', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-gemini-key': userApiKey || '',
+        },
+        body: JSON.stringify({
+          pdfBase64,
+          userApiKey,
+        }),
+      });
+
+      let data: any = null;
+      const textResponse = await res.text();
+      try {
+        data = JSON.parse(textResponse);
+      } catch (_) {}
+
+      if (res.ok && data?.text) {
+        pdfText = data.text;
       }
+    } catch (serverErr) {
+      console.warn('Server extract-plan-pdf unavailable or timed out, executing direct client-side extraction:', serverErr);
     }
 
-    if (!res.ok || !data || data.error) {
-      throw new Error(data?.error || 'Không thể trích xuất nội dung từ tệp PDF giáo án');
+    if (!pdfText) {
+      const { handleExtractPlanPdf } = await import('../server/geminiHandler');
+      const clientResult = await handleExtractPlanPdf(pdfBase64, userApiKey);
+      pdfText = clientResult.text;
     }
 
     return {
-      text: data.text || '',
-      images: data.images || [],
+      text: pdfText || '',
+      images: [],
     };
   }
 

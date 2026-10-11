@@ -179,53 +179,74 @@ export default function App() {
 
     const competenciesPayload = [...customPayload, ...standardPayload];
 
+    const payload = {
+      userApiKey: teacherAccount.apiKey,
+      userEmail: teacherAccount.email,
+      userName: teacherAccount.name,
+      subject,
+      grade,
+      lessonTitle: activeTitle,
+      lessonDuration,
+      curriculum,
+      digitalCompetencies: competenciesPayload,
+      teacherEquipment,
+      studentEquipment,
+      digitalTools,
+      oldLessonPlanText,
+      sgkImages: sgkImages.map((img) => ({
+        id: img.id,
+        name: img.name,
+        mimeType: img.mimeType,
+        data: img.data,
+      })),
+      customNote,
+    };
+
     try {
-      const response = await fetch('/api/generate-lesson-plan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-gemini-key': teacherAccount.apiKey,
-          'x-user-email': teacherAccount.email,
-        },
-        body: JSON.stringify({
-          userApiKey: teacherAccount.apiKey,
-          userEmail: teacherAccount.email,
-          userName: teacherAccount.name,
-          subject,
-          grade,
-          lessonTitle: activeTitle,
-          lessonDuration,
-          curriculum,
-          digitalCompetencies: competenciesPayload,
-          teacherEquipment,
-          studentEquipment,
-          digitalTools,
-          oldLessonPlanText,
-          sgkImages: sgkImages.map((img) => ({
-            id: img.id,
-            name: img.name,
-            mimeType: img.mimeType,
-            data: img.data,
-          })),
-          customNote,
-        }),
-      });
+      let rawContent = '';
 
-      let data: any = null;
-      const textResponse = await response.text();
+      // Try server endpoint first
       try {
-        data = JSON.parse(textResponse);
-      } catch (_) {
-        if (!response.ok) {
-          throw new Error('Máy chủ đang bận hoặc quá thời gian xử lý (Timeout). Vui lòng thử lại sau.');
+        const response = await fetch('/api/generate-lesson-plan', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-gemini-key': teacherAccount.apiKey,
+            'x-user-email': teacherAccount.email,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const textResponse = await response.text();
+        let data: any = null;
+        try {
+          data = JSON.parse(textResponse);
+        } catch (_) {}
+
+        if (response.ok && data?.rawContent) {
+          rawContent = data.rawContent;
+        } else if (data?.error && (data.error.includes('API key') || data.error.includes('quota') || data.error.includes('403'))) {
+          throw new Error(data.error);
         }
+      } catch (serverErr: any) {
+        if (serverErr.message?.includes('API key') || serverErr.message?.includes('Gmail')) {
+          throw serverErr;
+        }
+        console.warn('Server API unavailable or timed out, executing direct client-side generation:', serverErr);
       }
 
-      if (!response.ok || !data || data.error) {
-        throw new Error(data?.error || 'Lỗi xử lý kế hoạch bài dạy từ máy chủ');
+      // If server timed out (>10s on Vercel) or failed, generate directly in browser using Google Gemini
+      if (!rawContent) {
+        const { handleGenerateLessonPlan } = await import('./server/geminiHandler');
+        const clientResult = await handleGenerateLessonPlan(payload);
+        rawContent = clientResult.rawContent;
       }
 
-      setGeneratedPlan(data.rawContent);
+      if (!rawContent) {
+        throw new Error('Không nhận được nội dung giáo án từ AI. Vui lòng thử lại.');
+      }
+
+      setGeneratedPlan(rawContent);
       setCurrentStep(5);
     } catch (err: any) {
       console.error('Generation error:', err);
