@@ -70,10 +70,18 @@ export const GmailAccountModal: React.FC<GmailAccountModalProps> = ({
         body: JSON.stringify({ apiKey: apiKey.trim() }),
       });
 
-      const data = await response.json();
+      let data: any = null;
+      const textResponse = await response.text();
+      try {
+        data = JSON.parse(textResponse);
+      } catch (_) {
+        if (!response.ok) {
+          throw new Error('Máy chủ đang bận hoặc gặp sự cố phản hồi. Vui lòng thử lại sau giây lát.');
+        }
+      }
 
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Khóa API không hợp lệ hoặc đã hết hạn.');
+      if (!response.ok || !data || data.error) {
+        throw new Error(data?.error || 'Khóa API không hợp lệ hoặc đã hết hạn.');
       }
 
       const newAccount: TeacherAccount = {

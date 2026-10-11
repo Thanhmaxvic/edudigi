@@ -180,9 +180,18 @@ export async function extractTextFromFile(
       }),
     });
 
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error(data.error || 'Không thể trích xuất nội dung từ tệp PDF giáo án');
+    let data: any = null;
+    const textResponse = await res.text();
+    try {
+      data = JSON.parse(textResponse);
+    } catch (_) {
+      if (!res.ok) {
+        throw new Error('Máy chủ đang bận hoặc quá thời gian xử lý khi đọc PDF. Vui lòng thử lại.');
+      }
+    }
+
+    if (!res.ok || !data || data.error) {
+      throw new Error(data?.error || 'Không thể trích xuất nội dung từ tệp PDF giáo án');
     }
 
     return {

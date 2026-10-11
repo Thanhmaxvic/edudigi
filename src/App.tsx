@@ -211,9 +211,18 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Lỗi xử lý kế hoạch bài dạy từ máy chủ');
+      let data: any = null;
+      const textResponse = await response.text();
+      try {
+        data = JSON.parse(textResponse);
+      } catch (_) {
+        if (!response.ok) {
+          throw new Error('Máy chủ đang bận hoặc quá thời gian xử lý (Timeout). Vui lòng thử lại sau.');
+        }
+      }
+
+      if (!response.ok || !data || data.error) {
+        throw new Error(data?.error || 'Lỗi xử lý kế hoạch bài dạy từ máy chủ');
       }
 
       setGeneratedPlan(data.rawContent);
