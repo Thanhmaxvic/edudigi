@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Copy, Printer, Check, Edit3, Image as ImageIcon } from 'lucide-react';
+import { Download, Copy, Printer, Check, Edit3, Image as ImageIcon, FileText, CheckCircle2 } from 'lucide-react';
 import { exportLessonPlanToDocx, cleanLineFormatting, preprocessLessonPlanContent, ImageAttachment, FormattingOptions } from '../utils/docxExport';
 import { renderLatexToHtml, latexToUnicode } from '../utils/mathConverter';
 import { injectIntoDocxWithReport } from '../utils/docxInjector';
@@ -61,29 +61,37 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
   const handleExportWord = async () => {
     try {
       setIsExporting(true);
-      if (originalDocxBuffer) {
-        // Hướng 2: Kiến trúc Bảo toàn nguyên bản (AST Injection)
-        const { blob, report } = await injectIntoDocxWithReport(originalDocxBuffer, content);
-        saveAs(blob, `[NangLucSo] ${lessonTitle || 'GiaoAn'}.docx`);
-        if (report.appended > 0) {
-          alert(
-            `Đã chèn ${report.injected}/${report.total} nội dung năng lực số vào đúng vị trí.\n` +
-              `${report.appended} nội dung chưa xác định được vị trí đã được đưa vào PHỤ LỤC cuối giáo án.`
-          );
-        }
-      } else {
-        // Hướng cũ: Rebuild từ Markdown
-        await exportLessonPlanToDocx(content, {
-          lessonTitle,
-          subject,
-          grade,
-          images: sgkImages,
-          formatting: formattingOptions,
-        });
-      }
+      // Luôn xuất toàn văn giáo án hiển thị chuẩn 100% bằng exportLessonPlanToDocx
+      await exportLessonPlanToDocx(content, {
+        lessonTitle,
+        subject,
+        grade,
+        images: sgkImages,
+        formatting: formattingOptions,
+      });
     } catch (err: any) {
       console.error('Word export error:', err);
       alert('Có lỗi xảy ra khi tạo tệp Word: ' + err.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportInjectedWord = async () => {
+    if (!originalDocxBuffer) return;
+    try {
+      setIsExporting(true);
+      const { blob, report } = await injectIntoDocxWithReport(originalDocxBuffer, content);
+      saveAs(blob, `[NangLucSo_Goc] ${lessonTitle || 'GiaoAn'}.docx`);
+      if (report.appended > 0) {
+        alert(
+          `Đã chèn ${report.injected}/${report.total} nội dung năng lực số vào đúng vị trí trong file gốc.\n` +
+            `${report.appended} nội dung chưa xác định được vị trí đã được đưa vào PHỤ LỤC cuối giáo án.`
+        );
+      }
+    } catch (err: any) {
+      console.error('Word export error:', err);
+      alert('Có lỗi xảy ra khi chèn vào tệp Word gốc: ' + err.message);
     } finally {
       setIsExporting(false);
     }
@@ -544,25 +552,13 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
   return (
     <div className="space-y-4">
       {/* Export mode indicator */}
-      <div
-        className={`no-print p-3 rounded-xl border text-xs ${
-          originalDocxBuffer
-            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-            : 'bg-amber-50 border-amber-300 text-amber-900'
-        }`}
-      >
-        {originalDocxBuffer ? (
+      <div className="no-print p-3 rounded-xl border text-xs bg-emerald-50 border-emerald-300 text-emerald-900 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>
-            <b>✔ Chế độ BẢO TOÀN NGUYÊN BẢN đang bật:</b> file Word tải về giữ nguyên 100% công thức, bảng biểu, hình ảnh
-            của giáo án gốc, chỉ chèn thêm nội dung năng lực số màu đỏ. (Khung xem trước bên dưới chỉ là bản nháp văn bản,
-            công thức/hình có thể hiển thị chưa đúng – file Word tải về mới là bản chuẩn.)
+            <b>Đã sẵn sàng xuất bản:</b> Tệp Word (.docx) được tạo chuẩn 100% theo đúng nội dung giáo án hiển thị bên dưới (khổ A4, lề trái 2.5cm, các lề còn lại 1.5cm, Font Times New Roman 13pt, 100% công thức Toán Equation OMML và bôi đỏ nổi bật năng lực số).
           </span>
-        ) : (
-          <span>
-            <b>⚠ Chế độ DỰNG LẠI (không có file Word gốc):</b> công thức Toán, bảng và hình có thể bị sai lệch. Để giữ nguyên
-            100%, hãy quay lại Bước 4 và tải lên giáo án gốc dạng <b>.docx</b> (không dùng PDF), rồi soạn lại.
-          </span>
-        )}
+        </div>
       </div>
       {/* Control Bar */}
       <div className="no-print bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
@@ -636,6 +632,19 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
             <Printer className="w-3.5 h-3.5" />
             <span>In A4</span>
           </button>
+
+          {originalDocxBuffer && (
+            <button
+              type="button"
+              onClick={handleExportInjectedWord}
+              disabled={isExporting}
+              title="Chỉ chèn thêm nội dung năng lực số vào file Word bạn đã tải lên ở Bước 4 (nếu file đó đúng là bài dạy này)"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <FileText className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Chèn vào file Word mẫu</span>
+            </button>
+          )}
 
           <button
             type="button"

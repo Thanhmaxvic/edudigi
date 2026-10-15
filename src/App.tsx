@@ -271,18 +271,6 @@ export default function App() {
     if (!generatedPlan) return;
     try {
       setIsExporting(true);
-      if (originalDocxBuffer) {
-        // Bảo toàn nguyên bản: chỉ chèn nội dung đỏ vào file Word gốc
-        const { blob, report } = await injectIntoDocxWithReport(originalDocxBuffer, generatedPlan);
-        saveAs(blob, `[NangLucSo] ${lessonTitle || 'GiaoAn'}.docx`);
-        if (report.appended > 0) {
-          alert(
-            `Đã chèn ${report.injected}/${report.total} nội dung năng lực số vào đúng vị trí.\n` +
-              `${report.appended} nội dung chưa xác định được vị trí đã được đưa vào PHỤ LỤC cuối giáo án.`
-          );
-        }
-        return;
-      }
       await exportLessonPlanToDocx(generatedPlan, {
         lessonTitle: lessonTitle || 'GiaoAn_NangLucSo',
         subject,
@@ -296,6 +284,7 @@ export default function App() {
       setIsExporting(false);
     }
   };
+
 
   const steps = [
     { num: 1, title: 'Thông tin bài dạy', desc: 'Môn, lớp, tên bài, thời lượng' },
@@ -765,79 +754,82 @@ export default function App() {
                     <h4 className="text-sm font-bold text-slate-800">Cấu hình định dạng văn bản (Chỉ áp dụng khi tạo mới hoặc dựng lại)</h4>
                   </div>
                   
-                  {originalDocxBuffer ? (
-                    <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                      <b>✔ Đang bật chế độ BẢO TOÀN NGUYÊN BẢN (có file Word gốc):</b> Các thông số căn lề, font chữ, cỡ chữ, cách dòng sẽ được giữ y hệt file Word gốc của bạn để không làm vỡ cấu trúc.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
-                      <div>
-                        <label className="block text-slate-600 font-medium mb-1">Font chữ</label>
-                        <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                          value={formattingOptions.fontName} onChange={(e) => setFormattingOptions({...formattingOptions, fontName: e.target.value})}>
-                          <option value="Times New Roman">Times New Roman</option>
-                          <option value="Arial">Arial</option>
-                          <option value="Calibri">Calibri</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-slate-600 font-medium mb-1">Cỡ chữ</label>
-                        <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                          value={formattingOptions.fontSize} onChange={(e) => setFormattingOptions({...formattingOptions, fontSize: Number(e.target.value)})}>
-                          <option value={22}>11 pt</option>
-                          <option value={24}>12 pt</option>
-                          <option value={26}>13 pt</option>
-                          <option value={28}>14 pt</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-slate-600 font-medium mb-1">Cách dòng</label>
-                        <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                          value={formattingOptions.lineSpacing} onChange={(e) => setFormattingOptions({...formattingOptions, lineSpacing: Number(e.target.value)})}>
-                          <option value={240}>Single (1.0)</option>
-                          <option value={276}>1.15 lines</option>
-                          <option value={360}>1.5 lines</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-slate-600 font-medium mb-1">Cách đoạn</label>
-                        <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                          value={formattingOptions.paraSpacing} onChange={(e) => setFormattingOptions({...formattingOptions, paraSpacing: Number(e.target.value)})}>
-                          <option value={0}>0 pt</option>
-                          <option value={120}>6 pt</option>
-                          <option value={240}>12 pt</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-slate-600 font-medium mb-1">Đánh số trang</label>
-                        <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                          value={formattingOptions.pageNumber} onChange={(e) => setFormattingOptions({...formattingOptions, pageNumber: e.target.value as any})}>
-                          <option value="bottom-center">Giữa trang (Dưới)</option>
-                          <option value="bottom-right">Góc phải (Dưới)</option>
-                          <option value="none">Không đánh số</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-slate-600 font-medium mb-1">Căn lề</label>
-                        <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                          value={formattingOptions.margins.top === 850 ? 'normal' : 'narrow'} 
-                          onChange={(e) => {
-                            if (e.target.value === 'normal') {
-                              setFormattingOptions({...formattingOptions, margins: { top: 850, bottom: 850, left: 1417, right: 850 }});
-                            } else {
-                              // Narrow (1.27cm ~ 720 dxa)
-                              setFormattingOptions({...formattingOptions, margins: { top: 720, bottom: 720, left: 720, right: 720 }});
-                            }
-                          }}>
-                          <option value="normal">Chuẩn (T/D/P: 1.5cm, T: 2.5cm)</option>
-                          <option value="narrow">Hẹp (1.27cm)</option>
-                        </select>
-                      </div>
-                      <div className="col-span-2 sm:col-span-3 md:col-span-6 mt-1 text-slate-500 italic text-[10px]">
-                        Lưu ý: Hệ thống hiện tại chỉ xuất bản định dạng Word mới chuẩn (.docx). Các định dạng .doc hoặc .pdf xin vui lòng mở file .docx và tự lưu dưới dạng khác (Save as) trên máy tính.
-                      </div>
+                  {originalDocxBuffer && (
+                    <div className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg p-2.5 mb-3 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span>
+                        <b>Đã nạp file bài soạn mẫu:</b> AI sẽ tham chiếu bố cục của giáo án này. Khi xuất bản Word (.docx), bài dạy mới sẽ được định dạng chuẩn quy cách dưới đây.
+                      </span>
                     </div>
                   )}
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
+                    <div>
+                      <label className="block text-slate-600 font-medium mb-1">Font chữ</label>
+                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
+                        value={formattingOptions.fontName} onChange={(e) => setFormattingOptions({...formattingOptions, fontName: e.target.value})}>
+                        <option value="Times New Roman">Times New Roman</option>
+                        <option value="Arial">Arial</option>
+                        <option value="Calibri">Calibri</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-600 font-medium mb-1">Cỡ chữ</label>
+                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
+                        value={formattingOptions.fontSize} onChange={(e) => setFormattingOptions({...formattingOptions, fontSize: Number(e.target.value)})}>
+                        <option value={22}>11 pt</option>
+                        <option value={24}>12 pt</option>
+                        <option value={26}>13 pt</option>
+                        <option value={28}>14 pt</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-600 font-medium mb-1">Cách dòng</label>
+                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
+                        value={formattingOptions.lineSpacing} onChange={(e) => setFormattingOptions({...formattingOptions, lineSpacing: Number(e.target.value)})}>
+                        <option value={240}>Single (1.0)</option>
+                        <option value={276}>1.15 lines</option>
+                        <option value={360}>1.5 lines</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-600 font-medium mb-1">Cách đoạn</label>
+                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
+                        value={formattingOptions.paraSpacing} onChange={(e) => setFormattingOptions({...formattingOptions, paraSpacing: Number(e.target.value)})}>
+                        <option value={0}>0 pt</option>
+                        <option value={120}>6 pt</option>
+                        <option value={240}>12 pt</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-600 font-medium mb-1">Đánh số trang</label>
+                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
+                        value={formattingOptions.pageNumber} onChange={(e) => setFormattingOptions({...formattingOptions, pageNumber: e.target.value as any})}>
+                        <option value="bottom-center">Giữa trang (Dưới)</option>
+                        <option value="bottom-right">Góc phải (Dưới)</option>
+                        <option value="none">Không đánh số</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-600 font-medium mb-1">Căn lề</label>
+                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
+                        value={formattingOptions.margins.top === 850 ? 'normal' : 'narrow'} 
+                        onChange={(e) => {
+                          if (e.target.value === 'normal') {
+                            setFormattingOptions({...formattingOptions, margins: { top: 850, bottom: 850, left: 1417, right: 850 }});
+                          } else {
+                            // Narrow (1.27cm ~ 720 dxa)
+                            setFormattingOptions({...formattingOptions, margins: { top: 720, bottom: 720, left: 720, right: 720 }});
+                          }
+                        }}>
+                        <option value="normal">Chuẩn (T/D/P: 1.5cm, T: 2.5cm)</option>
+                        <option value="narrow">Hẹp (1.27cm)</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2 sm:col-span-3 md:col-span-6 mt-1 text-slate-500 italic text-[10px]">
+                      Lưu ý: Hệ thống hiện tại chỉ xuất bản định dạng Word mới chuẩn (.docx). Các định dạng .doc hoặc .pdf xin vui lòng mở file .docx và tự lưu dưới dạng khác (Save as) trên máy tính.
+                    </div>
+                  </div>
                 </div>
 
                 <div className="bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 text-white rounded-xl p-5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
