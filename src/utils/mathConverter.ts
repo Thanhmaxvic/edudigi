@@ -5,11 +5,90 @@ import {
   MathRadical,
   MathSuperScript,
   MathSubScript,
-  MathCurlyBrackets,
   MathRoundBrackets,
   MathSquareBrackets,
+  XmlComponent,
 } from "docx";
 import katex from "katex";
+
+/**
+ * Concrete XmlComponent subclass for arbitrary XML elements
+ */
+class CustomXmlComponent extends XmlComponent {
+  constructor(tag: string, ...children: any[]) {
+    super(tag);
+    for (const child of children) {
+      if (child !== undefined && child !== null) {
+        this.root.push(child);
+      }
+    }
+  }
+
+  public addChild(...children: any[]): void {
+    for (const c of children) {
+      if (c !== undefined && c !== null) {
+        this.root.push(c);
+      }
+    }
+  }
+}
+
+/**
+ * Native OMML Equation Array for Systems of Equations / Inequalities
+ * Produces valid Office Math Markup Language (OMML) with:
+ * - A single stretching opening brace '{' on the left
+ * - No closing brace on the right (endChr="")
+ * - Vertically stacked equation rows using <m:eqArr>
+ * - Optional red color styling (<w:color w:val="DC2626"/>)
+ */
+export class OmmlCases extends XmlComponent {
+  constructor(lines: string[], isRed = false) {
+    super("m:oMath");
+    const begChr = new CustomXmlComponent("m:begChr", { _attr: { "m:val": "{" } });
+    const endChr = new CustomXmlComponent("m:endChr", { _attr: { "m:val": "" } });
+    const grow = new CustomXmlComponent("m:grow", { _attr: { "m:val": "1" } });
+    const dPr = new CustomXmlComponent("m:dPr", begChr, endChr, grow);
+
+    const eqArr = new CustomXmlComponent("m:eqArr");
+    for (const line of lines) {
+      const lineElem = new CustomXmlComponent("m:e");
+      const r = new CustomXmlComponent("m:r");
+      if (isRed) {
+        const color = new CustomXmlComponent("w:color", { _attr: { "w:val": "DC2626" } });
+        const wrPr = new CustomXmlComponent("w:rPr", color);
+        const rPr = new CustomXmlComponent("m:rPr", wrPr);
+        r.addChild(rPr);
+      }
+      const t = new CustomXmlComponent("m:t", line);
+      r.addChild(t);
+      lineElem.addChild(r);
+      eqArr.addChild(lineElem);
+    }
+
+    const e = new CustomXmlComponent("m:e", eqArr);
+    const d = new CustomXmlComponent("m:d", dPr, e);
+    this.root.push(d);
+  }
+}
+
+/**
+ * Native OMML Formula Component with optional red color styling
+ */
+export class OmmlFormula extends XmlComponent {
+  constructor(text: string, isRed = false) {
+    super("m:oMath");
+    const r = new CustomXmlComponent("m:r");
+    if (isRed) {
+      const color = new CustomXmlComponent("w:color", { _attr: { "w:val": "DC2626" } });
+      const wrPr = new CustomXmlComponent("w:rPr", color);
+      const rPr = new CustomXmlComponent("m:rPr", wrPr);
+      r.addChild(rPr);
+    }
+    const t = new CustomXmlComponent("m:t", text);
+    r.addChild(t);
+    this.root.push(r);
+  }
+}
 
 /**
  * Greek letters dictionary
@@ -134,6 +213,16 @@ export function latexToUnicode(latex: string): string {
   else if (s.startsWith("\\[") && s.endsWith("\\]")) s = s.slice(2, -2).trim();
   else if (s.startsWith("\\(") && s.endsWith("\\)")) s = s.slice(2, -2).trim();
 
+  // 0. Systems of equations / cases: \begin{cases} ... \end{cases}
+  s = s.replace(/\\begin\{cases\}([\s\S]+?)\\end\{cases\}/g, (_, inner) => {
+    const lines = inner.split(/\\\\|\\cr/).map((l: string) => l.replace(/&/g, " ").trim()).filter(Boolean);
+    return `{ ${lines.join("; ")} }`;
+  });
+  s = s.replace(/\\left\\{([\s\S]+?)(?:\\right[.\}]|$)/g, (_, inner) => {
+    const lines = inner.split(/\\\\|\\cr/).map((l: string) => l.replace(/&/g, " ").trim()).filter(Boolean);
+    return `{ ${lines.join("; ")} }`;
+  });
+
   // 1. Text wrappers \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}
   s = s.replace(/\\(?:text|mathrm|mathbf|mathit|textbf|textit)\{([^{}]+)\}/g, "$1");
 
@@ -148,6 +237,10 @@ export function latexToUnicode(latex: string): string {
   s = s.replace(/\\sqrt\[([^{}]+)\]\{([^{}]+)\}/g, "($1)√($2)");
   s = s.replace(/\\sqrt\{([^{}]+)\}/g, "√($1)");
 
+  // 3b. Vectors and lines
+  s = s.replace(/\\vec\{([^{}]+)\}/g, "$1⃗");
+  s = s.replace(/\\overline\{([^{}]+)\}/g, "$1");
+
   // 4. Greek letters
   for (const [key, val] of Object.entries(GREEK_LETTERS)) {
     const re = new RegExp(`\\\\${key}\\b`, "g");
@@ -160,9 +253,11 @@ export function latexToUnicode(latex: string): string {
     s = s.replace(re, val);
   }
 
-  // 6. Left and right brackets
+  // 6. Left and right brackets & delimiters
   s = s.replace(/\\left\s*([(\[{|])/g, "$1");
   s = s.replace(/\\right\s*([)\]}|])/g, "$1");
+  s = s.replace(/\\left\./g, "");
+  s = s.replace(/\\right\./g, "");
   s = s.replace(/\\\{/g, "{").replace(/\\\}/g, "}");
 
   // 7. Superscripts with braces: ^{2} or ^2
@@ -180,20 +275,22 @@ export function latexToUnicode(latex: string): string {
   // 9. Clean remaining braces from LaTeX grouping
   s = s.replace(/\{([^{}]+)\}/g, "$1");
 
-  // 10. Clean multiple spaces
-  s = s.replace(/\\quad/g, "  ").replace(/\\qquad/g, "    ").replace(/\\,/g, " ");
+  // 10. Clean LaTeX formatting commands and spaces
+  s = s.replace(/\\displaystyle\b/g, "");
+  s = s.replace(/\\limits\b/g, "");
+  s = s.replace(/\\quad/g, "  ").replace(/\\qquad/g, "    ").replace(/\\,/g, " ").replace(/\\;/g, " ").replace(/\\:/g, " ");
   s = s.replace(/\\/g, ""); // strip any leftover backslashes
 
   return s;
 }
 
 /**
- * Converts a math expression to a native Word Math component (docx.Math)
+ * Converts a math expression to a native Word Math component (docx.Math or OmmlCases)
  * Uses native MathFraction, MathRadical, MathSuperScript, MathSubScript,
- * MathCurlyBrackets, MathRoundBrackets, MathSquareBrackets when possible,
+ * MathRoundBrackets, MathSquareBrackets, and custom OmmlCases when possible,
  * generating true OMML Equations editable directly in Microsoft Word.
  */
-export function convertLatexToDocxMath(formula: string): Math {
+export function convertLatexToDocxMath(formula: string, isRed = false): Math | XmlComponent {
   let clean = formula.trim();
 
   // Strip wrapping math delimiters
@@ -205,24 +302,20 @@ export function convertLatexToDocxMath(formula: string): Math {
   // Case 0: System of equations/inequalities \begin{cases} ... \end{cases} or \left\{ ... \right.
   const casesMatch =
     clean.match(/\\begin\{cases\}([\s\S]+?)\\end\{cases\}/) ||
-    clean.match(/\\left\\{([\s\S]+?)(?:\\right\.|\$|$)/);
+    clean.match(/\\left\\{([\s\S]+?)(?:\\right[.\}]|\$|$)/);
   if (casesMatch) {
     const rawLines = casesMatch[1].split(/\\\\|\\cr/);
-    const lineRuns: MathRun[] = [];
-    rawLines.forEach((line, idx) => {
+    const parsedLines: string[] = [];
+    rawLines.forEach((line) => {
       const cleanLine = latexToUnicode(line.replace(/&/g, " ").trim());
       if (cleanLine) {
-        if (idx > 0) lineRuns.push(new MathRun("\n"));
-        lineRuns.push(new MathRun(cleanLine));
+        parsedLines.push(cleanLine);
       }
     });
-    return new Math({
-      children: [
-        new MathCurlyBrackets({
-          children: lineRuns.length > 0 ? lineRuns : [new MathRun(latexToUnicode(casesMatch[1]))],
-        }),
-      ],
-    });
+    if (parsedLines.length === 0) {
+      parsedLines.push(latexToUnicode(casesMatch[1]));
+    }
+    return new OmmlCases(parsedLines, isRed);
   }
 
   // Case 1: Simple fraction \frac{a}{b}
@@ -230,6 +323,9 @@ export function convertLatexToDocxMath(formula: string): Math {
   if (fracMatch) {
     const num = latexToUnicode(fracMatch[1]);
     const den = latexToUnicode(fracMatch[2]);
+    if (isRed) {
+      return new OmmlFormula(`(${num})/(${den})`, true);
+    }
     return new Math({
       children: [
         new MathFraction({
@@ -244,6 +340,9 @@ export function convertLatexToDocxMath(formula: string): Math {
   const sqrtMatch = clean.match(/^\\sqrt\{([^{}]+)\}$/);
   if (sqrtMatch) {
     const inner = latexToUnicode(sqrtMatch[1]);
+    if (isRed) {
+      return new OmmlFormula(`√(${inner})`, true);
+    }
     return new Math({
       children: [
         new MathRadical({
@@ -258,6 +357,9 @@ export function convertLatexToDocxMath(formula: string): Math {
   if (superMatch) {
     const base = superMatch[1];
     const exp = superMatch[2] || superMatch[3];
+    if (isRed) {
+      return new OmmlFormula(`${base}${latexToUnicode('^' + exp)}`, true);
+    }
     return new Math({
       children: [
         new MathSuperScript({
@@ -273,6 +375,9 @@ export function convertLatexToDocxMath(formula: string): Math {
   if (subMatch) {
     const base = subMatch[1];
     const sub = subMatch[2] || subMatch[3];
+    if (isRed) {
+      return new OmmlFormula(`${base}${latexToUnicode('_' + sub)}`, true);
+    }
     return new Math({
       children: [
         new MathSubScript({
@@ -286,6 +391,9 @@ export function convertLatexToDocxMath(formula: string): Math {
   // Case 5: Round brackets \left( ... \right)
   const roundMatch = clean.match(/^\\left\(([\s\S]+?)\\right\)$/);
   if (roundMatch) {
+    if (isRed) {
+      return new OmmlFormula(`(${latexToUnicode(roundMatch[1])})`, true);
+    }
     return new Math({
       children: [
         new MathRoundBrackets({
@@ -298,6 +406,9 @@ export function convertLatexToDocxMath(formula: string): Math {
   // Case 6: Square brackets \left[ ... \right]
   const squareMatch = clean.match(/^\\left\[([\s\S]+?)\\right\]$/);
   if (squareMatch) {
+    if (isRed) {
+      return new OmmlFormula(`[${latexToUnicode(squareMatch[1])}]`, true);
+    }
     return new Math({
       children: [
         new MathSquareBrackets({
@@ -311,6 +422,9 @@ export function convertLatexToDocxMath(formula: string): Math {
   // Word's Math component automatically applies Cambria Math formatting, italicizing variables
   // and ensuring professional typography as an editable Equation.
   const unicodeMath = latexToUnicode(clean);
+  if (isRed) {
+    return new OmmlFormula(unicodeMath, true);
+  }
   return new Math({
     children: [new MathRun(unicodeMath)],
   });

@@ -13,8 +13,10 @@ import {
   ImageRun,
   BorderStyle,
   Math as DocxMath,
+  XmlComponent,
 } from "docx";
-import { saveAs } from "file-saver";
+import FileSaver from "file-saver";
+const saveAs = (FileSaver as any).saveAs || FileSaver;
 import { latexToUnicode, convertLatexToDocxMath } from "./mathConverter";
 
 // Constants for Page Setup (A4, standard Vietnamese educational guidelines)
@@ -216,7 +218,24 @@ export function preprocessLessonPlanContent(content: string): string {
   if (!content) return "";
 
   const withNormalizedRed = normalizeRedTags(content);
-  const lines = withNormalizedRed.split("\n");
+
+  // Collapse multi-line math blocks ($$...$$, \[...\], \begin{cases}...\end{cases}) into single lines
+  // so that line-by-line processing does not break formulas across paragraphs.
+  const withCollapsedMath = withNormalizedRed
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, inner) => {
+      const singleLine = inner.replace(/\r?\n/g, " ").trim();
+      return `$$${singleLine}$$`;
+    })
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, inner) => {
+      const singleLine = inner.replace(/\r?\n/g, " ").trim();
+      return `\\[${singleLine}\\]`;
+    })
+    .replace(/\\begin\{cases\}([\s\S]+?)\\end\{cases\}/g, (_, inner) => {
+      const singleLine = inner.replace(/\r?\n/g, " ").trim();
+      return `\\begin{cases}${singleLine}\\end{cases}`;
+    });
+
+  const lines = withCollapsedMath.split("\n");
   const processedLines: string[] = [];
 
   for (const line of lines) {
@@ -281,8 +300,8 @@ function findImage(idOrIndex: string, images?: ImageAttachment[]): ImageAttachme
  * - Never leaves raw "[[RED:" or "]]" or "<br>-" in text.
  * - Converts math expressions ($...$, $$...$$, \(...\), \[...\]) into native Word Math or clean Unicode.
  */
-function parseInlineRuns(text: string, defaultBold = false, fontName = DEFAULT_FONT_NAME, fontSize = DEFAULT_BASE_FONT_SIZE): (TextRun | DocxMath)[] {
-  const runs: (TextRun | DocxMath)[] = [];
+function parseInlineRuns(text: string, defaultBold = false, fontName = DEFAULT_FONT_NAME, fontSize = DEFAULT_BASE_FONT_SIZE): (TextRun | DocxMath | XmlComponent)[] {
+  const runs: (TextRun | DocxMath | XmlComponent)[] = [];
 
   // Clean up rogue [..] or [i] annotations and any leftover HTML breaks
   let sanitized = text
@@ -344,7 +363,7 @@ function parseInlineRuns(text: string, defaultBold = false, fontName = DEFAULT_F
  * Helper to parse bold markdown **text** and math expressions inside regular or red segments.
  * When isRed is true, bold is strictly false as requested by the user.
  */
-function appendFormattedRuns(runs: (TextRun | DocxMath)[], textSegment: string, isRed: boolean, isDefaultBold: boolean, fontName: string, fontSize: number) {
+function appendFormattedRuns(runs: (TextRun | DocxMath | XmlComponent)[], textSegment: string, isRed: boolean, isDefaultBold: boolean, fontName: string, fontSize: number) {
   const cleanSegment = textSegment
     .replace(/\[\[\s*RED:?/gi, "")
     .replace(/\]\]/g, "")
@@ -410,29 +429,17 @@ function appendFormattedRuns(runs: (TextRun | DocxMath)[], textSegment: string, 
 
     const formula = match[1] || match[2] || match[3] || match[4] || match[5];
     if (formula) {
-      if (isRed) {
-        // Red math formula: formatted cleanly as Unicode TextRun with red color
+      try {
+        const docxMath = convertLatexToDocxMath(formula, isRed);
+        runs.push(docxMath);
+      } catch {
         runs.push(new TextRun({
           text: latexToUnicode(formula),
           font: fontName,
           size: fontSize,
-          bold: false,
-          color: RED_COLOR,
+          bold: isRed ? false : isDefaultBold,
+          color: isRed ? RED_COLOR : "000000",
         }));
-      } else {
-        // Standard formula: convert to native Word Math (OMML)
-        try {
-          const docxMath = convertLatexToDocxMath(formula);
-          runs.push(docxMath);
-        } catch {
-          runs.push(new TextRun({
-            text: latexToUnicode(formula),
-            font: fontName,
-            size: fontSize,
-            bold: isDefaultBold,
-            color: "000000",
-          }));
-        }
       }
     }
 
@@ -810,6 +817,19 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
             new TextRun({ text: "–  ", font: fontName, size: fontSize, bold: false }),
             ...parseInlineRuns(runContent, false, fontName, fontSize),
           ],
+        })
+      );
+      i++;
+      continue;
+    }
+
+    // Standalone display math equation ($$...$$ or \[...\])
+    if (/^(\$\$[\s\S]+\$\$|\\\[[\s\S]+\\\])$/.test(trimmed)) {
+      paragraphs.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 120, after: 120, line: 240 },
+          children: parseInlineRuns(trimmed, false, fontName, fontSize),
         })
       );
       i++;

@@ -3,7 +3,8 @@ import { Download, Copy, Printer, Check, Edit3, Image as ImageIcon, FileText, Ch
 import { exportLessonPlanToDocx, cleanLineFormatting, preprocessLessonPlanContent, ImageAttachment, FormattingOptions } from '../utils/docxExport';
 import { renderLatexToHtml, latexToUnicode } from '../utils/mathConverter';
 import { injectIntoDocxWithReport } from '../utils/docxInjector';
-import { saveAs } from 'file-saver';
+import FileSaver from 'file-saver';
+const saveAs = (FileSaver as any).saveAs || FileSaver;
 
 export interface SgkImagePreviewItem {
   id: string;
@@ -120,8 +121,8 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
   const renderSegmentWithMathAndBold = (segment: string, isRed: boolean, baseKey: string) => {
     if (!segment) return null;
 
-    // 1. Math regex: $$...$$ or \[...\] or $...$ or \(...\)
-    const mathRegex = /(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$]+?)\$|\\\(([\s\S]+?)\\\))/g;
+    // 1. Math regex: $$...$$ or \[...\] or $...$ or \(...\) or \begin{cases}...\end{cases}
+    const mathRegex = /(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$]+?)\$|\\\(([\s\S]+?)\\\)|(\\begin\{cases\}[\s\S]+?\\end\{cases\}))/g;
     const elements: React.ReactNode[] = [];
     let lastIdx = 0;
     let match: RegExpExecArray | null;
@@ -176,7 +177,7 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
         }
       }
 
-      const displayMath = match[1] || match[2];
+      const displayMath = match[1] || match[2] || match[5];
       const inlineMath = match[3] || match[4];
       const formula = displayMath || inlineMath;
 
@@ -520,6 +521,20 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
         continue;
       }
 
+      // Standalone display math equation ($$...$$ or \[...\])
+      if (/^(\$\$[\s\S]+\$\$|\\\[[\s\S]+\\\])$/.test(trimmed)) {
+        elements.push(
+          <div
+            key={`math_${i}`}
+            className="my-3 text-center overflow-x-auto py-1 font-times text-[13pt]"
+          >
+            {renderFormattedText(trimmed)}
+          </div>
+        );
+        i++;
+        continue;
+      }
+
       // Regular paragraph (indented)
       elements.push(
         <p
@@ -592,11 +607,24 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
           <div className="hidden lg:flex items-center text-xs text-slate-500 gap-2 pl-2 border-l border-slate-200">
             <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
             <span>Khổ A4 (Trái 2.5cm, Trên/Dưới/Phải 1.5cm, Số trang ở giữa header)</span>
-            {sgkImages.length > 0 && (
-              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-medium text-[11px] flex items-center gap-1">
-                <ImageIcon className="w-3 h-3" /> Đã gắn {sgkImages.length} ảnh SGK
-              </span>
-            )}
+            {(() => {
+              const embeddedCount = (content.match(/\[\[IMAGE:[^\]]+\]\]/g) || []).length;
+              if (embeddedCount > 0) {
+                return (
+                  <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-medium text-[11px] flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3" /> Đã gắn {embeddedCount} hình minh họa SGK
+                  </span>
+                );
+              }
+              if (sgkImages.length > 0) {
+                return (
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium text-[11px] flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3" /> Đã nạp {sgkImages.length} tài liệu SGK
+                  </span>
+                );
+              }
+              return null;
+            })()}
           </div>
         </div>
 

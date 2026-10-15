@@ -443,7 +443,8 @@ ${studentEqText}
 ${toolsText}
 
 ${payload.sgkImages && payload.sgkImages.length > 0 ? `5. TÀI LIỆU NỘI DUNG BÀI HỌC SGK ĐÍNH KÈM (ẢNH CHỤP HOẶC TỆP PDF - ${payload.sgkImages.length} tài liệu):
-=> MỤC ĐÍCH DUY NHẤT: Bám sát toàn bộ thuật ngữ, nội dung cốt lõi, bảng số liệu, hình minh họa và câu hỏi trong SGK để biên soạn giáo án chuẩn xác 100%, không bị sai lệch so với SGK. Tuyệt đối không chèn trực tiếp toàn bộ trang sách này vào bài soạn!\n` : ''}
+=> Bám sát toàn bộ thuật ngữ, nội dung cốt lõi, bảng số liệu, hình minh họa và câu hỏi trong SGK để biên soạn giáo án chuẩn xác 100%, không bị sai lệch so với SGK.
+=> CHÈN HÌNH MINH HỌA: Nếu tài liệu đính kèm có hình minh họa, hình vẽ hình học, đồ thị tọa độ hoặc sơ đồ trực quan dùng trong các hoạt động học, hãy chèn thẻ [[IMAGE:1:Hình 1. Chú thích hình]], [[IMAGE:2:Hình 2. Chú thích hình]]... (với số 1, 2... là thứ tự tài liệu đính kèm) vào đúng vị trí hoặc cột bảng của hoạt động tương ứng để hệ thống xuất Word nhúng ảnh thực tế.\n` : ''}
 
 6. BÀI SOẠN MẪU / GIÁO ÁN GỐC CỦA GIÁO VIÊN:
 ${payload.oldLessonPlanText && payload.oldLessonPlanText.trim() ? payload.oldLessonPlanText : "(Chưa có văn bản bài soạn cũ, hãy xây dựng bài dạy mới hoàn chỉnh theo chuẩn CV 5512 với đầy đủ tiến trình các tiết và mục Phụ lục ở cuối)"}
@@ -454,6 +455,7 @@ ${payload.customNote ? `7. GHI CHÚ THÊM CỦA GIÁO VIÊN:\n${payload.customNo
 - Soạn đầy đủ tiến trình cả ${payload.lessonDuration} (nếu từ 2 tiết trở lên, phân bổ rõ ràng ranh giới TIẾT 1, TIẾT 2, TIẾT 3... với các hoạt động tương ứng).
 - Mỗi hoạt động đều có Bảng 2 cột (| Hoạt động của GV và HS | Sản phẩm dự kiến |) đủ 4 bước (Bước 1, Bước 2, Bước 3, Bước 4).
 - Bôi đỏ 100% các nội dung năng lực số bằng [[RED:...]] (chữ thường, không in đậm).
+- Khi có tài liệu SGK đính kèm, chèn thẻ [[IMAGE:x:Tên hình]] vào đúng hoạt động học để giáo án có hình ảnh minh họa trực quan.
 - Bắt buộc tạo mục ## IV. PHỤ LỤC ở cuối bài gồm: Các Phiếu học tập số 1, 2, 3... và Bảng Rubric đánh giá hoạt động nhóm.
 - 100% công thức, biểu thức, tọa độ, hệ bất phương trình/hệ phương trình phải viết dạng LaTeX trong $...$ hoặc $$...$$.
 - Khổ A4, lề trái 2.5cm, các lề còn lại 1.5cm, Times New Roman 13pt. Không ký tự rác [...] hay [i].`;

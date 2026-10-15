@@ -31,10 +31,10 @@ function convertHtmlToMarkdown(html: string, extractedImages: ExtractedPlanImage
   // Map image src to image placeholders
   const replaceImgWithPlaceholder = (img: HTMLImageElement) => {
     const src = img.getAttribute('src') || '';
+    if (!src) return '';
     const matched = extractedImages.find((item) => item.id === src || item.previewUrl === src);
-    const id = matched ? matched.id : src;
-    const name = matched ? matched.name : (img.getAttribute('alt') || 'Hình ảnh từ giáo án cũ');
-    return ` [[IMAGE:${id}:${name}]] `;
+    if (!matched) return '';
+    return ` [[IMAGE:${matched.id}:${matched.name}]] `;
   };
 
   // 1. Process tables into clean Markdown tables
@@ -220,16 +220,19 @@ export async function extractTextFromFile(
     try {
       const options = {
         convertImage: mammoth.images.imgElement(function (image: any) {
+          const mimeType = image.contentType || 'image/jpeg';
+          // MathType / Equation 3.0 objects are embedded as WMF/EMF preview images
+          const isFormula = /x-wmf|x-emf|wmf|emf/i.test(mimeType);
+          if (isFormula) {
+            // Do NOT treat MathType / Equation WMF/EMF previews as lesson plan images
+            return Promise.resolve({ src: '', alt: '' });
+          }
+
           return image.read('base64').then(function (imageBuffer: string) {
             imageCounter++;
             const id = `giao_an_cu_img_${Date.now()}_${imageCounter}`;
-            const mimeType = image.contentType || 'image/jpeg';
             const previewUrl = `data:${mimeType};base64,${imageBuffer}`;
-            // MathType / Equation 3.0 objects are embedded as WMF/EMF preview images
-            const isFormula = /x-wmf|x-emf|wmf|emf/i.test(mimeType);
-            const name = isFormula
-              ? `Công thức ${imageCounter} (MathType trong giáo án gốc)`
-              : `Hình ${imageCounter} (từ giáo án cũ)`;
+            const name = `Hình ${imageCounter} (từ giáo án cũ)`;
 
             extractedImages.push({
               id,

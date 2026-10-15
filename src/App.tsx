@@ -271,11 +271,17 @@ export default function App() {
     if (!generatedPlan) return;
     try {
       setIsExporting(true);
+      // Combine genuine textbook images and genuine illustrations from old plan (exclude MathType WMF/EMF previews)
+      const exportImages = [
+        ...sgkImages.filter(img => img.mimeType?.startsWith('image/')),
+        ...oldPlanImages.filter(img => !/wmf|emf/i.test(img.mimeType || ''))
+      ];
+
       await exportLessonPlanToDocx(generatedPlan, {
         lessonTitle: lessonTitle || 'GiaoAn_NangLucSo',
         subject,
         grade,
-        images: oldPlanImages,
+        images: exportImages,
         formatting: formattingOptions,
       });
     } catch (err: any) {
@@ -888,7 +894,10 @@ export default function App() {
                     lessonTitle={lessonTitle}
                     subject={subject}
                     grade={grade}
-                    sgkImages={oldPlanImages}
+                    sgkImages={[
+                      ...sgkImages.filter(img => img.mimeType?.startsWith('image/')),
+                      ...oldPlanImages.filter(img => !/wmf|emf/i.test(img.mimeType || ''))
+                    ]}
                     originalDocxBuffer={originalDocxBuffer}
                     formattingOptions={formattingOptions}
                   />
