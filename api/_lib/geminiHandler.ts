@@ -394,12 +394,13 @@ Hãy biên soạn Kế hoạch bài dạy (Giáo án) hoàn chỉnh cho bài: "$
 
   const promptParts: any[] = [];
 
-  // Add textbook photos if uploaded (strictly for reference & verification)
+  // Add textbook photos or PDF files if uploaded (strictly for reference & verification)
   if (payload.sgkImages && payload.sgkImages.length > 0) {
     for (const img of payload.sgkImages) {
+      const isPdf = img.mimeType === "application/pdf" || (img.data && img.data.startsWith("JVBER"));
       promptParts.push({
         inlineData: {
-          mimeType: img.mimeType || "image/jpeg",
+          mimeType: isPdf ? "application/pdf" : (img.mimeType || "image/jpeg"),
           data: img.data,
         },
       });
@@ -441,8 +442,8 @@ ${studentEqText}
 * Công cụ / Ứng dụng số khai thác:
 ${toolsText}
 
-${payload.sgkImages && payload.sgkImages.length > 0 ? `5. ẢNH TRANG SÁCH GIÁO KHOA ĐÍNH KÈM (${payload.sgkImages.length} ảnh):
-=> MỤC ĐÍCH DUY NHẤT: Dùng để đối chiếu, so sánh nội dung kiến thức trong giáo án để đảm bảo hoàn toàn chuẩn xác, đồng bộ và không bị sai lệch so với SGK. TUYỆT ĐỐI KHÔNG CHÈN ẢNH TRANG SGK NÀY VÀO BÀI SOẠN!\n` : ''}
+${payload.sgkImages && payload.sgkImages.length > 0 ? `5. TÀI LIỆU NỘI DUNG BÀI HỌC SGK ĐÍNH KÈM (ẢNH CHỤP HOẶC TỆP PDF - ${payload.sgkImages.length} tài liệu):
+=> MỤC ĐÍCH DUY NHẤT: Bám sát toàn bộ thuật ngữ, nội dung cốt lõi, bảng số liệu, hình minh họa và câu hỏi trong SGK để biên soạn giáo án chuẩn xác 100%, không bị sai lệch so với SGK. Tuyệt đối không chèn trực tiếp toàn bộ trang sách này vào bài soạn!\n` : ''}
 
 6. BÀI SOẠN MẪU / GIÁO ÁN GỐC CỦA GIÁO VIÊN:
 ${payload.oldLessonPlanText && payload.oldLessonPlanText.trim() ? payload.oldLessonPlanText : "(Chưa có văn bản bài soạn cũ, hãy xây dựng bài dạy mới hoàn chỉnh theo chuẩn CV 5512 với đầy đủ tiến trình các tiết và mục Phụ lục ở cuối)"}
@@ -517,29 +518,32 @@ Hãy trích xuất TOÀN BỘ 100% NỘI DUNG của tệp PDF Kế hoạch bài 
 }
 
 export async function handleAnalyzeSgk(
-  images: Array<{ mimeType: string; data: string }>,
+  images: Array<{ mimeType: string; data: string; name?: string }>,
   userApiKey?: string
 ) {
   const ai = getGeminiClient(userApiKey);
 
   const promptParts: any[] = [];
   for (const img of images) {
+    const isPdf = img.mimeType === "application/pdf" || (img.data && img.data.startsWith("JVBER"));
     promptParts.push({
       inlineData: {
-        mimeType: img.mimeType || "image/jpeg",
+        mimeType: isPdf ? "application/pdf" : (img.mimeType || "image/jpeg"),
         data: img.data,
       },
     });
   }
 
   promptParts.push({
-    text: `Hãy phân tích kỹ các ảnh trang sách giáo khoa này và trích xuất:
-1. Tên bài học chính xác
-2. Yêu cầu cần đạt / Mục tiêu cốt lõi ghi trong SGK
-3. Các hoạt động học tập chính trong bài (Khởi động, Khám phá, Luyện tập, Vận dụng)
-4. Các đồ dùng, bảng số liệu, thí nghiệm hoặc tranh ảnh xuất hiện trong SGK
-5. Đề xuất các hoạt động tích hợp năng lực số phù hợp nhất (ví dụ: quét mã QR tra cứu số liệu, dùng ứng dụng đo đạc, tạo infographic sản phẩm...).
-Trả về ngắn gọn, rõ ràng bằng tiếng Việt cho giáo viên tham khảo.`
+    text: `Bạn là chuyên gia sư phạm phân tích tài liệu sách giáo khoa (SGK) Việt Nam.
+Hãy phân tích kỹ các tài liệu SGK đính kèm (bao gồm ảnh chụp và tệp PDF các trang SGK bài học) và trích xuất chi tiết:
+1. Tên bài học chính xác và bộ sách giáo khoa tương ứng (Kết nối tri thức, Chân trời sáng tạo, Cánh diều...).
+2. Yêu cầu cần đạt / Mục tiêu cốt lõi của bài học ghi trong SGK.
+3. Thuật ngữ, khái niệm, công thức toán học/khoa học và nội dung cốt lõi của bài học.
+4. Danh sách các hình minh họa, biểu đồ, bản vẽ, bảng số liệu, thí nghiệm hoặc hoạt động khám phá trong SGK.
+5. Tiến trình hoạt động học trong SGK (Khởi động, Khám phá/Hình thành kiến thức, Luyện tập, Vận dụng).
+6. Đề xuất các hoạt động tích hợp năng lực số (NLS) phù hợp nhất với nội dung bài học (ví dụ: công cụ tìm kiếm dữ liệu, GeoGebra/Desmos, Quizizz/Padlet, ứng dụng AI...).
+Trả về ngắn gọn, sư phạm, chuyên nghiệp bằng tiếng Việt để giáo viên tham khảo và tích hợp vào giáo án.`
   });
 
   const response = await callGeminiWithFallback(ai, {
@@ -547,7 +551,7 @@ Trả về ngắn gọn, rõ ràng bằng tiếng Việt cho giáo viên tham kh
       parts: promptParts,
     },
     config: {
-      systemInstruction: "Bạn là trợ lý phân tích sách giáo khoa Việt Nam.",
+      systemInstruction: "Bạn là chuyên gia sư phạm phân tích sách giáo khoa Việt Nam.",
       temperature: 0.2,
     },
   });
