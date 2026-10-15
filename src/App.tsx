@@ -91,6 +91,8 @@ export default function App() {
   // Teacher Uploaded Sample Lesson Plan / Previous Lesson Plan & Textbook
   const [oldLessonPlanText, setOldLessonPlanText] = useState<string>('');
   const [customNote, setCustomNote] = useState<string>('');
+  const [phuLuc1Text, setPhuLuc1Text] = useState<string>('');
+  const [phuLuc3Text, setPhuLuc3Text] = useState<string>('');
   const [sgkImages, setSgkImages] = useState<SgkImageItem[]>([]);
   const [oldPlanImages, setOldPlanImages] = useState<SgkImageItem[]>([]);
   const [originalDocxBuffer, setOriginalDocxBuffer] = useState<ArrayBuffer | null>(null);
@@ -115,6 +117,8 @@ export default function App() {
       setLessonTitle('');
       setOldLessonPlanText('');
       setCustomNote('');
+      setPhuLuc1Text('');
+      setPhuLuc3Text('');
       setSgkImages([]);
       setOldPlanImages([]);
       setOriginalDocxBuffer(null);
@@ -200,6 +204,8 @@ export default function App() {
         data: img.data,
       })),
       customNote,
+      phuLuc1Text,
+      phuLuc3Text,
     };
 
     try {
@@ -678,6 +684,10 @@ export default function App() {
                   oldPlanImages={oldPlanImages}
                   setOldPlanImages={setOldPlanImages}
                   setOriginalDocxBuffer={setOriginalDocxBuffer}
+                  phuLuc1Text={phuLuc1Text}
+                  setPhuLuc1Text={setPhuLuc1Text}
+                  phuLuc3Text={phuLuc3Text}
+                  setPhuLuc3Text={setPhuLuc3Text}
                   onOpenAccountModal={() => {
                     setAccountRequiredMessage(null);
                     setIsAccountModalOpen(true);

@@ -34,6 +34,10 @@ interface SourceMaterialUploaderProps {
   oldPlanImages?: SgkImageItem[];
   setOldPlanImages?: React.Dispatch<React.SetStateAction<SgkImageItem[]>>;
   setOriginalDocxBuffer?: (buffer: ArrayBuffer | null) => void;
+  phuLuc1Text?: string;
+  setPhuLuc1Text?: (text: string) => void;
+  phuLuc3Text?: string;
+  setPhuLuc3Text?: (text: string) => void;
 }
 
 export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
@@ -48,14 +52,33 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
   oldPlanImages = [],
   setOldPlanImages,
   setOriginalDocxBuffer,
+  phuLuc1Text,
+  setPhuLuc1Text,
+  phuLuc3Text,
+  setPhuLuc3Text,
 }) => {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const planFileInputRef = useRef<HTMLInputElement>(null);
+  const phuLuc1FileInputRef = useRef<HTMLInputElement>(null);
+  const phuLuc3FileInputRef = useRef<HTMLInputElement>(null);
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [planFileName, setPlanFileName] = useState<string | null>(null);
   const [isReadingPlan, setIsReadingPlan] = useState(false);
+
+  // Phụ lục 1 & 3 state
+  const [localPhuLuc1, setLocalPhuLuc1] = useState('');
+  const [localPhuLuc3, setLocalPhuLuc3] = useState('');
+  const effectivePhuLuc1 = phuLuc1Text !== undefined ? phuLuc1Text : localPhuLuc1;
+  const updatePhuLuc1 = setPhuLuc1Text || setLocalPhuLuc1;
+  const effectivePhuLuc3 = phuLuc3Text !== undefined ? phuLuc3Text : localPhuLuc3;
+  const updatePhuLuc3 = setPhuLuc3Text || setLocalPhuLuc3;
+
+  const [phuLuc1FileName, setPhuLuc1FileName] = useState<string | null>(null);
+  const [phuLuc3FileName, setPhuLuc3FileName] = useState<string | null>(null);
+  const [isReadingPhuLuc1, setIsReadingPhuLuc1] = useState(false);
+  const [isReadingPhuLuc3, setIsReadingPhuLuc3] = useState(false);
 
   // Local fallback if setOldPlanImages is not passed
   const [localOldPlanImages, setLocalOldPlanImages] = useState<SgkImageItem[]>([]);
@@ -196,6 +219,38 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
     }
   };
 
+  const handlePhuLuc1Upload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsReadingPhuLuc1(true);
+      setPhuLuc1FileName(file.name);
+      const res = await extractTextFromFile(file, teacherAccount?.apiKey);
+      updatePhuLuc1(res.text);
+    } catch (err: any) {
+      alert('Không thể đọc tệp Phụ lục 1: ' + err.message);
+    } finally {
+      setIsReadingPhuLuc1(false);
+      if (phuLuc1FileInputRef.current) phuLuc1FileInputRef.current.value = '';
+    }
+  };
+
+  const handlePhuLuc3Upload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsReadingPhuLuc3(true);
+      setPhuLuc3FileName(file.name);
+      const res = await extractTextFromFile(file, teacherAccount?.apiKey);
+      updatePhuLuc3(res.text);
+    } catch (err: any) {
+      alert('Không thể đọc tệp Phụ lục 3: ' + err.message);
+    } finally {
+      setIsReadingPhuLuc3(false);
+      if (phuLuc3FileInputRef.current) phuLuc3FileInputRef.current.value = '';
+    }
+  };
+
   const removeSgkImage = (id: string) => {
     setSgkImages((prev) => prev.filter((img) => img.id !== id));
   };
@@ -279,6 +334,151 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
             <p className="text-xs text-slate-500 mt-1">
               Hệ thống bảo đảm: <b>1.</b> Giữ nguyên 100% cấu trúc chia cột của giáo án cũ; <b>2.</b> Giữ nguyên 100% các hình ảnh từ giáo án gốc tại đúng vị trí ban đầu; <b>3.</b> Tích hợp mã chỉ báo năng lực số được chọn &amp; diễn giải (bôi đỏ); <b>4.</b> Ảnh SGK tải lên dùng để AI đối chiếu nội dung kiến thức không bị sai lệch so với sách giáo khoa, không đưa ảnh trang sách vào giáo án.
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 2 NGUỒN CĂN CỨ: PHỤ LỤC 1 & PHỤ LỤC 3 (GEMINI NOTEBOOK) */}
+      <div className="bg-gradient-to-r from-blue-50/60 to-indigo-50/60 border border-blue-200/80 rounded-xl p-4.5 space-y-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-600 text-white rounded">Gemini Notebook</span>
+            <h4 className="text-sm font-bold text-slate-800">
+              Hai tài liệu căn cứ cốt lõi: Phụ lục 1 (Tổ chuyên môn) &amp; Phụ lục 3 (Giáo viên)
+            </h4>
+          </div>
+          <p className="text-xs text-slate-600 mt-1">
+            AI tự động tra cứu hai kế hoạch này để lấy chuẩn <b>Yêu cầu cần đạt</b>, phân bổ <b>thời lượng từng tiết</b>, <b>thiết bị &amp; học liệu số</b>, <b>phòng học</b> và <b>mã chỉ báo năng lực số</b> tương ứng.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Card Phụ lục 1 */}
+          <div className="bg-white p-3.5 rounded-lg border border-blue-200 shadow-2xs space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-blue-600" />
+                Phụ lục 1: Kế hoạch dạy học của tổ chuyên môn
+              </label>
+              {effectivePhuLuc1.trim() && (
+                <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Đã nạp ({effectivePhuLuc1.trim().length} ký tự)
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Cung cấp Yêu cầu cần đạt (YCCD), phân bổ số tiết (tiết 1, tiết 2...), thiết bị dạy học, học liệu số và phòng học.
+            </p>
+
+            <input
+              type="file"
+              ref={phuLuc1FileInputRef}
+              onChange={handlePhuLuc1Upload}
+              accept=".docx,.pdf,.txt"
+              className="hidden"
+            />
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => phuLuc1FileInputRef.current?.click()}
+                disabled={isReadingPhuLuc1}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+              >
+                <FileUp className="w-3.5 h-3.5" />
+                <span>{isReadingPhuLuc1 ? 'Đang đọc...' : 'Tải file Phụ lục 1 (.docx, .pdf)'}</span>
+              </button>
+              {phuLuc1FileName && (
+                <span className="text-xs text-slate-600 truncate max-w-[160px] font-medium bg-slate-100 px-2 py-1 rounded">
+                  📄 {phuLuc1FileName}
+                </span>
+              )}
+              {effectivePhuLuc1.trim() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    updatePhuLuc1('');
+                    setPhuLuc1FileName(null);
+                  }}
+                  className="text-slate-400 hover:text-red-600 p-1 text-xs ml-auto transition-colors"
+                  title="Xóa Phụ lục 1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <textarea
+              rows={4}
+              value={effectivePhuLuc1}
+              onChange={(e) => updatePhuLuc1(e.target.value)}
+              placeholder="Dán nội dung đoạn trích bài học từ Phụ lục 1 (YCCD, số tiết, thiết bị, phòng học...) hoặc bấm nút tải file ở trên..."
+              className="w-full text-xs font-mono p-2.5 bg-slate-50/50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Card Phụ lục 3 */}
+          <div className="bg-white p-3.5 rounded-lg border border-indigo-200 shadow-2xs space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-indigo-600" />
+                Phụ lục 3: Kế hoạch giáo dục của giáo viên
+              </label>
+              {effectivePhuLuc3.trim() && (
+                <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Đã nạp ({effectivePhuLuc3.trim().length} ký tự)
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Cung cấp mã chỉ báo năng lực số dự kiến (ví dụ: 1.1.NC1b, 2.1.NC1a...) và công cụ số (Quizizz, GeoGebra, Padlet, AI...).
+            </p>
+
+            <input
+              type="file"
+              ref={phuLuc3FileInputRef}
+              onChange={handlePhuLuc3Upload}
+              accept=".docx,.pdf,.txt"
+              className="hidden"
+            />
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => phuLuc3FileInputRef.current?.click()}
+                disabled={isReadingPhuLuc3}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+              >
+                <FileUp className="w-3.5 h-3.5" />
+                <span>{isReadingPhuLuc3 ? 'Đang đọc...' : 'Tải file Phụ lục 3 (.docx, .pdf)'}</span>
+              </button>
+              {phuLuc3FileName && (
+                <span className="text-xs text-slate-600 truncate max-w-[160px] font-medium bg-slate-100 px-2 py-1 rounded">
+                  📄 {phuLuc3FileName}
+                </span>
+              )}
+              {effectivePhuLuc3.trim() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    updatePhuLuc3('');
+                    setPhuLuc3FileName(null);
+                  }}
+                  className="text-slate-400 hover:text-red-600 p-1 text-xs ml-auto transition-colors"
+                  title="Xóa Phụ lục 3"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <textarea
+              rows={4}
+              value={effectivePhuLuc3}
+              onChange={(e) => updatePhuLuc3(e.target.value)}
+              placeholder="Dán nội dung đoạn trích bài học từ Phụ lục 3 (mã chỉ báo NLS, công cụ số tương ứng...) hoặc bấm nút tải file ở trên..."
+              className="w-full text-xs font-mono p-2.5 bg-slate-50/50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
           </div>
         </div>
       </div>

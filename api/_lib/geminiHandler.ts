@@ -45,6 +45,8 @@ export interface GenerateLessonPlanPayload {
   oldLessonPlanText?: string; // Bài soạn gốc/mẫu của giáo viên nếu có
   sgkImages?: Array<{ mimeType: string; data: string; name?: string; id?: string }>;
   customNote?: string;
+  phuLuc1Text?: string; // Kế hoạch dạy học của tổ chuyên môn (YCCD, phân bổ số tiết, thiết bị, phòng học...)
+  phuLuc3Text?: string; // Kế hoạch giáo dục của giáo viên (mã năng lực số và phương án tổ chức bằng công cụ số...)
 }
 
 // Model fallback list to mitigate temporary spikes in demand (503 UNAVAILABLE)
@@ -314,17 +316,7 @@ export function sanitizeLessonPlanOutput(text: string): string {
     const defaultHĐ2Implementation = `d) Tổ chức thực hiện:
 | Hoạt động của GV và HS | Sản phẩm dự kiến |
 | --- | --- |
-| **Bước 1: GV chuyển giao nhiệm vụ:**<br>– GV yêu cầu học sinh nghiên cứu Nội dung mục II SGK tr.25 và quan sát Hình 4.6 SGK tr.26 (Bản vẽ lắp mẫu).<br>– GV chia lớp thành các nhóm (4 - 6 học sinh), yêu cầu học sinh thảo luận và hoàn thành bảng đọc bản vẽ lắp theo đúng trình tự 5 bước: Khung tên -> Bảng kê -> Hình biểu diễn -> Kích thước -> Tổng hợp.<br>[[RED:– GV trình chiếu bản vẽ lắp phóng to chất lượng cao trên Smart TV và cung cấp tệp mô hình 3D tương tác trên phần mềm mô phỏng để học sinh có thể xoay, phóng to các chi tiết trên máy tính bảng hoặc điện thoại nhóm.]]<br><br>**Bước 2: HS thực hiện nhiệm vụ học tập:**<br>– Các nhóm học sinh đọc SGK, quan sát kĩ từng vị trí trên bản vẽ lắp mẫu Hình 4.6 và thảo luận ghi kết quả vào phiếu học tập.<br>[[RED:– HS sử dụng ứng dụng mô phỏng 3D trên thiết bị số để phóng to mối ghép chốt bản lề, vòng đệm và quan sát thứ tự tháo lắp các chi tiết trong không gian 3 chiều.]]<br>– GV quan sát, theo dõi và gợi ý cho các nhóm gặp khó khăn.<br><br>**Bước 3: Báo cáo kết quả hoạt động, thảo luận:**<br>– GV gọi đại diện 1 - 2 nhóm lên trình bày kết quả đọc bản vẽ lắp.<br>– Các nhóm khác chú ý lắng nghe, đối chiếu kết quả, đặt câu hỏi phản biện và bổ sung ý kiến.<br><br>**Bước 4: Đánh giá kết quả thực hiện:**<br>– GV nhận xét tinh thần làm việc của các nhóm và chuẩn hóa kiến thức đọc bản vẽ lắp.<br>– GV phân tích kĩ bước 5 (Tổng hợp): Học sinh cần xác định rõ trình tự tháo lắp và công dụng thực tế của sản phẩm.<br>[[RED:[6.1.TC2a: HS sử dụng thành thạo phần mềm đồ họa mô phỏng 3D để trực quan hóa cấu trúc không gian và quy trình tháo lắp sản phẩm kĩ thuật.]]] | **BẢNG TRÌNH TỰ ĐỌC BẢN VẼ LẮP (Hình 4.6 SGK tr.26):**<br>(Xem chi tiết ở bảng 3 cột bên dưới) |
-
-BẢNG 3 CỘT: TRÌNH TỰ ĐỌC BẢN VẼ LẮP MẪU (Hình 4.6 SGK tr.26)
-
-| Trình tự đọc | Nội dung cần hiểu | Bản vẽ lắp mẫu (Hình 4.6 SGK tr.26) |
-| --- | --- | --- |
-| 1. Khung tên | – Tên gọi sản phẩm<br>– Tỉ lệ bản vẽ<br>– Cơ sở thiết kế, chế tạo | – Bộ bản lề<br>– 1:2<br>– Nhà máy cơ khí Hà Nội |
-| 2. Bảng kê | – Tên gọi các chi tiết và số lượng<br>– Vật liệu chế tạo của từng chi tiết | – Chi tiết 1: Bản lề trái (số lượng: 1, vật liệu: Thép)<br>– Chi tiết 2: Bản lề phải (số lượng: 1, vật liệu: Thép)<br>– Chi tiết 3: Chốt (số lượng: 1, vật liệu: Thép)<br>– Chi tiết 4: Vòng đệm (số lượng: 1, vật liệu: Thép/Cao su) |
-| 3. Hình biểu diễn | – Tên gọi các hình chiếu<br>– Vị trí các hình cắt | – Hình chiếu đứng có cắt cục bộ<br>– Hình chiếu bằng |
-| 4. Kích thước | – Kích thước chung của sản phẩm<br>– Kích thước lắp ghép giữa các chi tiết<br>– Kích thước định vị giữa các chi tiết | – Kích thước chung: 100, 50, 20 (dài x rộng x cao)<br>– Kích thước lắp ghép: Đường kính chốt phi 8<br>– Kích thước định vị: Khoảng cách giữa 2 tâm lỗ là 60 |
-| 5. Tổng hợp | – Trình tự tháo và lắp các chi tiết<br>– Công dụng của sản phẩm | – Trình tự tháo: Chốt (3) -> Vòng đệm (4) -> Tách rời bản lề trái (1) và bản lề phải (2). Trình tự lắp: Ngược lại với trình tự tháo.<br>– Công dụng: Dùng để liên kết cánh cửa với khung cửa, giúp cửa đóng mở linh hoạt. |
+| **Bước 1: GV chuyển giao nhiệm vụ:**<br>– GV yêu cầu học sinh nghiên cứu nội dung SGK, quan sát tranh ảnh/học liệu và thảo luận nhóm hoàn thành nhiệm vụ học tập.<br>[[RED:– GV trình chiếu học liệu số, phần mềm hoặc mô hình tương tác trên Smart TV/máy chiếu để học sinh quan sát và thao tác trực quan.]]<br><br>**Bước 2: HS thực hiện nhiệm vụ học tập:**<br>– Các nhóm học sinh đọc SGK, thảo luận tích cực và ghi nhận kết quả vào phiếu học tập.<br>[[RED:– HS sử dụng thiết bị số (máy tính, điện thoại, máy tính bảng) khai thác phần mềm chuyên dụng hoặc học liệu số để giải quyết nhiệm vụ.]]<br>– GV quan sát, theo dõi và hỗ trợ kịp thời.<br><br>**Bước 3: Báo cáo kết quả hoạt động, thảo luận:**<br>– Đại diện nhóm lên trình bày kết quả, các nhóm khác chú ý lắng nghe, đối chiếu kết quả, đặt câu hỏi phản biện và bổ sung ý kiến.<br><br>**Bước 4: Đánh giá kết quả thực hiện:**<br>– GV nhận xét tinh thần làm việc của các nhóm và chuẩn hóa kiến thức trọng tâm bài học.<br>[[RED:[Tích hợp năng lực số: HS sử dụng thành thạo công cụ số và thiết bị số để thu thập thông tin, mô phỏng và hoàn thành xuất sắc nhiệm vụ học tập.]]] | **SẢN PHẨM HỌC TẬP DỰ KIẾN:**<br>– Kết quả hoàn thành các câu hỏi, bài tập và phiếu học tập được chuẩn hóa đầy đủ và chính xác theo yêu cầu cần đạt. |
 
 `;
     processed = processed.replace(emptyHĐ2Regex, defaultHĐ2Implementation);
@@ -361,76 +353,44 @@ export async function handleGenerateLessonPlan(payload: GenerateLessonPlanPayloa
     ? payload.sgkImages.map((img, i) => `- Hình ảnh ${i + 1}: ${img.name || `Trang/Hình ảnh SGK ${i + 1}`}`).join("\n")
     : "";
 
-  const systemInstruction = `Bạn là giáo viên chuyên môn trực tiếp giảng dạy môn ${payload.subject}, lớp ${payload.grade} (Chương trình GDPT 2018 theo Công văn 5512/BGDĐT-GDTrH), đồng thời là một chuyên gia về Chuyển đổi số. Nhiệm vụ của bạn là soạn giáo án bài "${payload.lessonTitle}".
-Khi tích hợp năng lực số, bạn PHẢI đưa vào một cách logic, bài bản, liền mạch với các nội dung kiến thức chuyên môn sẵn có hoặc thêm mới. Các hoạt động tích hợp phải thực tế, khả thi và tương thích tuyệt đối với các thiết bị số, học liệu số, các phương tiện dạy học mà giáo viên đã cung cấp.
+  const systemInstruction = `✦ R (Role - Vai trò) - Gán vai chuyên gia:
+Bạn là giáo viên chuyên môn môn ${payload.subject}, lớp ${payload.grade} có nhiều năm kinh nghiệm, am hiểu sâu sắc Chương trình GDPT 2018, Công văn 5512/BGDĐT-GDTrH và phương pháp dạy học phát triển phẩm chất, năng lực học sinh. Đồng thời, bạn là chuyên gia tích hợp công nghệ và năng lực số trong giáo dục.
 
-NGUYÊN TẮC CỐT LÕI - BẢO TOÀN TUYỆT ĐỐI 100% NỘI DUNG VÀ CẤU TRÚC:
-BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TÓM TẮT, KHÔNG ĐƯỢC LƯỢC BỎ, KHÔNG ĐƯỢC RÚT GỌN BẤT KỲ CÂU CHỮ, ĐOẠN VĂN, BẢNG BIỂU, CÂU HỎI TRẮC NGHIỆM HAY BẢNG ĐÁP ÁN NÀO CỦA BÀI SOẠN!
+✦ T (Task - Nhiệm vụ) - Chỉ định sản phẩm chính:
+Hãy biên soạn Kế hoạch bài dạy (Giáo án) hoàn chỉnh cho bài: "${payload.lessonTitle}" (Thời lượng: ${payload.lessonDuration}) và xuất thành file Word (.docx) dùng được ngay trên lớp theo chuẩn Công văn 5512/BGDĐT.
 
-1. KHI ĐÃ CÓ BÀI SOẠN CŨ CỦA GIÁO VIÊN:
-   - Đây là quy trình "BỔ SUNG NĂNG LỰC SỐ VÀO NỀN BÀI SOẠN GỐC" (In-place Enrichment), KHÔNG PHẢI VIẾT LẠI HOẶC TÓM TẮT.
-   - BẮT BUỘC giữ lại 100% nguyên văn toàn bộ các câu, từ, đoạn, tiêu đề, bảng biểu, câu hỏi và đáp án của bài soạn cũ.
-   - BẢO ĐẢM KHÔNG ĐƯỢC BỎ SÓT NỘI DUNG Ở MỤC "d) Tổ chức thực hiện:":
-     Tuyệt đối KHÔNG ĐƯỢC chỉ ghi dòng "d) Tổ chức thực hiện:" rồi bỏ trống hoặc nhảy ngay sang "3. Hoạt động luyện tập"!
-     Nếu bài soạn cũ có bảng hoặc các bước ở "d) Tổ chức thực hiện:", bạn PHẢI GIỮ LẠI ĐẦY ĐỦ 100%. Nếu bài soạn cũ bị thiếu hoặc sơ sài ở mục này, bạn BẮT BUỘC PHẢI TRIỂN KHAI ĐẦY ĐỦ BẢNG 2 CỘT VỚI ĐỦ 4 BƯỚC (Bước 1: Chuyển giao nhiệm vụ; Bước 2: Thực hiện nhiệm vụ; Bước 3: Báo cáo thảo luận; Bước 4: Đánh giá kết quả) và BẢNG 3 CỘT ĐỌC BẢN VẼ THEO ĐÚNG NỘI DUNG SGK!
-   - ĐỐI VỚI CÁC BẢNG CHIA CỘT (Bảng 2 cột '| Hoạt động của GV và HS | Sản phẩm dự kiến |', Bảng 3 cột '| Trình tự đọc | Nội dung cần hiểu | Bản vẽ... |', Bảng đáp án trắc nghiệm...):
-     BẮT BUỘC GIỮ NGUYÊN 100% ĐỊNH DẠNG BẢNG MARKDOWN!
-     BẮT BUỘC giữ đủ 4 bước trong cột hoạt động:
-       * 'Bước 1: GV chuyển giao nhiệm vụ:'
-       * 'Bước 2: HS thực hiện nhiệm vụ học tập:'
-       * 'Bước 3: Báo cáo kết quả hoạt động, thảo luận:'
-       * 'Bước 4: Đánh giá kết quả thực hiện:'
-     Toàn bộ câu hỏi, dẫn dắt của GV và câu trả lời dự kiến của HS bên trong các ô bảng PHẢI ĐƯỢC GIỮ NGUYÊN NGUYÊN VĂN, không được bớt dù một dòng!
-   - ĐỐI VỚI HỆ THỐNG CÂU HỎI TRẮC NGHIỆM & BÀI TẬP:
-     Toàn bộ các câu hỏi trắc nghiệm (ví dụ từ Câu 1 đến Câu 5 có đầy đủ 4 phương án A, B, C, D) và BẢNG ĐÁP ÁN TRẮC NGHIỆM PHẢI ĐƯỢC GIỮ NGUYÊN 100%, tuyệt đối không được cắt bớt hoặc thay thế bằng câu tóm tắt như "HS làm theo SGK".
-   - ĐỐI VỚI HÌNH ẢNH:
-     Mọi thẻ hình ảnh dạng [[IMAGE:...]] có sẵn trong bài soạn cũ PHẢI ĐƯỢC GIỮ NGUYÊN 100% tại đúng vị trí ban đầu (trong ô bảng hoặc đoạn văn tương ứng). Tuyệt đối không xóa bất kỳ hình ảnh nào từ bài soạn cũ!
-   - VỀ ẢNH CHỤP SÁCH GIÁO KHOA TẢI LÊN:
-     Ảnh chụp các trang SGK CHỈ DÙNG ĐỂ ĐỐI CHIẾU, SO SÁNH NỘI DUNG KIẾN THỨC BÀI HỌC KHÔNG BỊ SAI LỆCH VỚI SGK, TUYỆT ĐỐI KHÔNG CHÈN ẢNH TRANG SGK ĐÓ VÀO BÀI SOẠN!
+✦ C (Context - Bối cảnh & Căn cứ 4 Nguồn Tài liệu - Gemini Notebook):
+1. Nguồn 1: Mẫu giáo án / Bài soạn gốc (nếu có cung cấp, bạn PHẢI BẢO TOÀN NGUYÊN VĂN 100% cấu trúc, nội dung, bảng biểu, câu hỏi, bài tập, hình ảnh).
+2. Nguồn 2: Tài liệu SGK bài học (${payload.subject} ${payload.grade}): Dùng để đối chiếu thuật ngữ, số liệu, định nghĩa, bài tập, câu hỏi; đảm bảo bài soạn chuẩn xác 100% so với SGK. Tuyệt đối không chèn ảnh chụp trang SGK vào bài soạn.
+3. Nguồn 3: Phụ lục 1 (Kế hoạch dạy học của tổ chuyên môn): Tra cứu kỹ để lấy đúng Yêu cầu cần đạt (YCCD), phân bổ chi tiết thời lượng ${payload.lessonDuration} theo từng tiết (Tiết 1, Tiết 2, Tiết 3...), thiết bị dạy học, học liệu số và phòng học bộ môn.
+4. Nguồn 4: Phụ lục 3 (Kế hoạch giáo dục của giáo viên): Tra cứu các mã chỉ báo năng lực số và phương án tổ chức dạy học bằng công cụ số tương ứng.
+5. Cấu trúc tổ chức: Bám sát sách giáo khoa, tuân thủ cấu trúc 4 bước tổ chức hoạt động học theo Mẫu giáo án và Công văn 5512 (Bước 1: GV chuyển giao nhiệm vụ -> Bước 2: HS thực hiện nhiệm vụ -> Bước 3: Báo cáo, thảo luận -> Bước 4: Đánh giá, kết luận) dạng bảng 2 cột (| Hoạt động của GV và HS | Sản phẩm dự kiến |).
+6. Soạn đầy đủ tiến trình cả ${payload.lessonDuration}: Nếu thời lượng là nhiều tiết (ví dụ: 2 tiết, 3 tiết, 4 tiết...), bạn BẮT BUỘC phân chia rõ ràng ranh giới các tiết dạy: "TIẾT 1: ...", "TIẾT 2: ...", "TIẾT 3: ..." với các hoạt động tương ứng. Tuyệt đối KHÔNG được tóm tắt hay rút gọn!
+7. Trích cắt hình minh họa: Mọi thẻ [[IMAGE:...]] có sẵn trong bài soạn gốc hoặc SGK phải được giữ nguyên tại đúng vị trí cột/ô hoạt động tương ứng.
 
-2. CÁCH THỨC LỒNG GHÉP NĂNG LỰC SỐ MỚI (CHỈ BÔI ĐỎ BẰNG [[RED:...]], CHỮ THƯỜNG, KHÔNG IN ĐẬM):
-   Nhiệm vụ DUY NHẤT của bạn trên nền bài soạn cũ là bổ sung nội dung Năng lực số mới bọc trong [[RED:...]], không in đậm:
-   - Trong Mục I.2 (Năng lực): Thêm hoặc cập nhật mục "Năng lực số:" gồm mã chỉ báo và diễn giải chuẩn đã chọn (Ví dụ: [[RED:Năng lực số:\n- 1.1.TC2a: Tìm kiếm, tiếp cận và khai thác học liệu số, bản vẽ mẫu 2D/3D từ thư viện số hoặc Internet.\n- 2.1.TC2a: Tương tác, trao đổi và chia sẻ sản phẩm học tập trên các nền tảng học tập số.\n- 6.1.TC2a: Sử dụng phần mềm đồ họa/mô phỏng số (như AutoCAD, Tinkercad, GeoGebra 3D hoặc ứng dụng xem mô hình 3D trên thiết bị số) để quan sát vật thể đa chiều và lập bản vẽ chi tiết.]]).
-   - Trong Mục II (Thiết bị dạy học): Bổ sung thiết bị và ứng dụng số (Ví dụ: [[RED:- Mô hình vật thể 3D số hóa trên phần mềm mô phỏng 3D trình chiếu trên Smart TV...]], [[RED:- Bộ câu hỏi trắc nghiệm tương tác trên phần mềm Quizizz hoặc Kahoot...]], [[RED:- Thiết bị di động có kết nối Internet để học sinh quét mã QR và tương tác...]]).
-   - Trong Mục III (Tiến trình dạy học):
-     + Ở Bước 1 (Chuyển giao) hoặc Bước 2 (Thực hiện): lồng ghép thao tác học sinh dùng phần mềm/thiết bị số bọc trong [[RED:...]].
-     + Ở Bước 4 (Đánh giá kết quả): bổ sung thẻ năng lực số tương ứng bọc trong ngoặc vuông và bôi đỏ (Ví dụ: [[RED:[6.1.TC2a: HS sử dụng phần mềm mô phỏng 3D để phóng to bản vẽ kĩ thuật và xoay mô hình đa chiều phục vụ tiếp thu kiến thức.]]]).
-
-3. KHI CHƯA CÓ BÀI SOẠN CŨ HOẶC CẦN SOẠN MỚI HOÀN CHỈNH (Áp dụng chuẩn mực CV 5512/BGDĐT-GDTrH):
-   - Bạn PHẢI xây dựng một Kế hoạch bài dạy HOÀN CHỈNH, CHUYÊN SÂU, ĐẦY ĐỦ 100%, TUYỆT ĐỐI KHÔNG TÓM TẮT:
-     * Đầy đủ I. Mục tiêu (1. Về kiến thức; 2. Về năng lực: Năng lực chung, Năng lực đặc thù môn học, Năng lực số [[RED:...]]; 3. Về phẩm chất).
-     * Đầy đủ II. Thiết bị dạy học và học liệu (1. Đối với giáo viên; 2. Đối với học sinh; có bôi đỏ [[RED:...]] các thiết bị và học liệu số).
-     * Đầy đủ III. Tiến trình dạy học với ĐỦ 4 HOẠT ĐỘNG, MỖI HOẠT ĐỘNG ĐỀU CÓ BẢNG 2 CỘT (| Hoạt động của GV và HS | Sản phẩm dự kiến |) VỚI ĐỦ 4 BƯỚC:
-       - Hoạt động 1: Khởi động (Mở đầu) (Mục tiêu, Nội dung, Sản phẩm, Bảng 2 cột đủ 4 bước).
-       - Hoạt động 2: Hình thành kiến thức mới (Chia thành các mục bài học chi tiết, mỗi mục đều có Mục tiêu, Nội dung, Sản phẩm, Bảng 2 cột đủ 4 bước):
-         + TUYỆT ĐỐI KHÔNG ĐƯỢC DỪNG Ở "d) Tổ chức thực hiện:" RỒI NHẢY THẲNG SANG "3. Hoạt động luyện tập"!
-         + Nếu bài học là "BẢN VẼ LẮP" (Công nghệ 8):
-           * Mục 1: Khái niệm và nội dung của bản vẽ lắp (Phân tích chi tiết 4 nội dung: Khung tên, Bảng kê, Hình biểu diễn, Kích thước; nhấn mạnh Bảng kê là nội dung đặc thù chỉ có ở bản vẽ lắp; có bảng 2 cột đủ 4 bước).
-           * Mục 2: Tìm hiểu về đọc bản vẽ lắp (theo Nội dung mục II SGK tr.25 và Hình 4.6 SGK tr.26 Bản vẽ lắp Bộ bản lề hoặc Vòng đai: BẮT BUỘC CÓ BẢNG 2 CỘT TỔ CHỨC THỰC HIỆN ĐỦ 4 BƯỚC Bước 1, Bước 2, Bước 3, Bước 4; VÀ BẢNG 3 CỘT ĐỌC BẢN VẼ LẮP ĐỦ 5 BƯỚC: 1. Khung tên, 2. Bảng kê, 3. Hình biểu diễn, 4. Kích thước, 5. Tổng hợp).
-         + Nếu bài học là "BẢN VẼ CHI TIẾT" (Công nghệ 10):
-           * Mục 1: Khái niệm & nội dung bản vẽ chi tiết (bảng 4 nội dung).
-           * Mục 2: Trình tự đọc bản vẽ chi tiết (BẢNG 3 CỘT ĐỌC BẢN VẼ CHI TIẾT ĐỦ 5 BƯỚC: Khung tên, Hình biểu diễn, Kích thước, Yêu cầu kĩ thuật, Tổng hợp).
-           * Mục 3: Các bước lập bản vẽ chi tiết (4 bước vẽ kĩ thuật).
-         + Với các bài học khác: Triển khai chi tiết từng đơn vị kiến thức tương ứng của SGK với bảng 2 cột đầy đủ lời thoại GV, chỉ dẫn và sản phẩm HS.
-       - Hoạt động 3: Luyện tập (Mục tiêu, Nội dung, Sản phẩm, Bảng 2 cột đủ 4 bước; bài tập thực hành cụ thể; BỘ 5 CÂU HỎI TRẮC NGHIỆM ĐẦY ĐỦ CẢ 4 PHƯƠNG ÁN A, B, C, D VÀ BẢNG ĐÁP ÁN TRẮC NGHIỆM KÈM GIẢI THÍCH CHI TIẾT).
-       - Hoạt động 4: Vận dụng (Mục tiêu, Nội dung, Sản phẩm, Bảng 2 cột đủ 4 bước; nhiệm vụ thực tế và ứng dụng công nghệ/phần mềm số).
-     * Hướng dẫn tự học về nhà.
-
-4. THỂ THỨC VĂN BẢN CHUẨN MỰC & VIẾT HOA ĐÚNG CHÍNH TẢ TIẾNG VIỆT:
-   - TUYỆT ĐỐI KHÔNG VIẾT HOA TÙY TIỆN TỪNG CHỮ (Title Case phong cách tiếng Anh như 'Về Kiến Thức', 'Đối Với Giáo Viên', 'Chuyển Giao Nhiệm Vụ', 'Sản Phẩm Dự Kiến'). Trong tiếng Việt, chỉ viết hoa chữ cái đầu câu/đầu tiêu đề và các danh từ riêng theo đúng ngữ pháp chính tả tiếng Việt.
-   - TUYỆT ĐỐI KHÔNG DÙNG KÝ TỰ '*' HAY DẤU '.' TRƯỚC CÁC ĐỀ MỤC.
-   - TUYỆT ĐỐI KHÔNG DÙNG '*' Ở CUỐI CÂU.
-   - TUYỆT ĐỐI KHÔNG dùng thẻ HTML <br> hay <br>- ở ngoài bảng. Xuống dòng bằng phím Enter bình thường.
-   - TUYỆT ĐỐI KHÔNG để sót các ký hiệu thô rác: '<br>-', '<br>', '&lt;br&gt;', '[[RED:', ']]'.
-   - Khi bôi đỏ bằng [[RED:...]], phải đóng ngoặc ]] đầy đủ trên cùng dòng/đoạn, TUYỆT ĐỐI KHÔNG để sót kí hiệu thô [[RED: hay ]] trôi nổi.
-   - Không chứa ký tự rác dạng [..] hay [i]. Không chèn 'Trang 1/1'.
-   - Giữ nguyên các mã chỉ báo năng lực số (ví dụ: 1.1.CB1a, 2.1.TC1a, 6.1.TC1a...) cùng Yêu cầu cần đạt và Diễn giải cụ thể đã chọn.
-
-5. QUY TẮC TRÌNH BÀY CÔNG THỨC TOÁN HỌC, VẬT LÍ, HÓA HỌC:
-   - Khi bài học có công thức (Toán, Vật lí, Hóa học, Công nghệ...):
-     + Các biểu thức có phân số, căn thức, tích phân, ký hiệu phức tạp: BẮT BUỘC viết dạng LaTeX chuẩn đặt trong '$ ... $' (cho công thức trong dòng) hoặc '$$ ... $$' (cho công thức đặt riêng dòng). Ví dụ: '$x = \\frac{-b \\pm \\sqrt{\\Delta}}{2a}$', '$$P = U \\cdot I$$'.
-     + Đối với ký hiệu đơn giản hoặc số mũ, chỉ số: Dùng ký hiệu trực quan rõ ràng như 'x^2', 'x_1', 'Δ', 'π', 'α', 'β', 'Ω', '±', '×', '≤', '≥', '≠', '≈', '°C'.
-     + TUYỆT ĐỐI KHÔNG để lỗi thiếu đóng ngoặc nhọn '{' '}' trong cú pháp LaTeX.`;
+✦ F / O (Format / Output Format - Định dạng đầu ra) - Quy chuẩn kỹ thuật & hiển thị:
+1. TÍCH HỢP NĂNG LỰC SỐ:
+   - Tích hợp logic, bài bản, gắn liền với thiết bị số và công cụ số thực tế (như Quizizz, Padlet, GeoGebra, Desmos, Canva, Google Drive, AI tools...).
+   - YÊU CẦU ĐẶC BIỆT: Toàn bộ nội dung liên quan trực tiếp đến năng lực số (câu từ, hướng dẫn, thao tác học sinh/giáo viên và mã chỉ báo) PHẢI ĐƯỢC TÔ CHỮ MÀU ĐỎ bằng cú pháp [[RED:...]] (chữ thường, không in đậm, đóng ngoặc ]] đầy đủ).
+   - PHỤ LỤC BẮT BUỘC Ở CUỐI GIÁO ÁN: Cuối giáo án PHẢI tạo mục "## IV. PHỤ LỤC" gồm:
+     * 1. CÁC PHIẾU HỌC TẬP: Thiết kế đầy đủ, chi tiết toàn bộ các Phiếu học tập (Phiếu 1, Phiếu 2, Phiếu 3...) đã sử dụng trong các hoạt động học của bài dạy. Mỗi phiếu có bảng biểu rõ ràng gồm: Tên phiếu, Mục tiêu, Tên nhóm/HS, Nhiệm vụ/câu hỏi/bài tập, và Phần dòng kẻ/khoảng trống dự kiến cho học sinh làm bài.
+     * 2. BẢNG TIÊU CHÍ ĐÁNH GIÁ (RUBRIC ĐÁNH GIÁ HOẠT ĐỘNG NHÓM): Bảng tiêu chí chuẩn mực dạng Markdown gồm các cột: Tiêu chí đánh giá, Mức 1 (Chưa đạt), Mức 2 (Đạt), Mức 3 (Tốt), Điểm tối đa. Bao gồm tiêu chí về tinh thần hợp tác, ứng dụng công cụ số [[RED:...]], chất lượng sản phẩm và kỹ năng thuyết trình.
+2. CHUẨN HÓA CÔNG THỨC TOÁN HỌC / KÝ HIỆU KHOA HỌC:
+   - 100% công thức, biểu thức, ký hiệu và số liệu mang ý nghĩa toán học/khoa học trong toàn bộ giáo án PHẢI ĐƯỢC VIẾT DƯỚI DẠNG CÚ PHÁP LATEX đặt trong '$ ... $' (trong dòng) hoặc '$$ ... $$' (dòng riêng).
+   - Áp dụng cho MỌI phần: kiến thức, ví dụ, bài tập, lời giải, đáp án, bảng biểu, tọa độ, hệ bất phương trình/hệ phương trình và các cột hoạt động.
+   - Ví dụ:
+     * Hệ bất phương trình: '$$\\begin{cases} 2x + y \\le 4 \\\\ x - y > 1 \\\\ x \\ge 0 \\end{cases}$$'
+     * Tọa độ: '$A(0; 4)$', '$B(1; 2)$', '$C(3; 0)$'
+     * Biểu thức: '$F(x, y) = 2x + 3y$', '$x + y \\ge 2$'
+     * Ký hiệu: '$\\Delta$', '$\\le$', '$\\ge$', '$\\neq$', '$\\in$', '$\\subset$', '$\\cup$', '$\\cap$'
+   - Tuyệt đối KHÔNG viết công thức bằng văn bản thường không có dấu $, không dùng ký tự giả lập hoặc hình ảnh.
+3. QUY CHUẨN TRANG IN & CHÍNH TẢ TIẾNG VIỆT:
+   - Khổ A4; lề trái 2,5 cm, các lề còn lại 1,5 cm; Font Times New Roman, cỡ 13, giãn dòng đơn.
+   - Tuyệt đối KHÔNG sử dụng chú thích ngoặc vuông dạng [...] hay [i].
+   - Viết hoa đúng ngữ pháp tiếng Việt: Chỉ viết hoa chữ cái đầu câu/đầu tiêu đề và các danh từ riêng theo đúng ngữ pháp chính tả tiếng Việt. Tuyệt đối KHÔNG viết hoa tùy tiện từng chữ (Title Case).
+   - Tuyệt đối KHÔNG dùng ký tự '*' hay dấu '.' trước các đề mục. Không dùng '*' ở cuối câu.
+   - Tuyệt đối KHÔNG dùng thẻ HTML <br> hay <br>- ở ngoài bảng. Xuống dòng bằng phím Enter bình thường.
+   - Tuyệt đối KHÔNG để sót các ký hiệu thô rác: '<br>-', '<br>', '&lt;br&gt;', '[[RED:', ']]'.`;
 
   const promptParts: any[] = [];
 
@@ -447,7 +407,13 @@ BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TÓM TẮT, KHÔNG ĐƯỢC LƯỢC BỎ, K
   }
 
   const promptText = `
-THÔNG TIN BÀI DẠY VÀ CHỈ BÁO NĂNG LỰC SỐ CẦN TÍCH HỢP:
+✦ R (Role - Vai trò):
+Bạn là giáo viên chuyên môn ${payload.subject} ${payload.grade} có nhiều năm kinh nghiệm, am hiểu sâu sắc Chương trình GDPT 2018 (CV 5512/BGDĐT-GDTrH).
+
+✦ T (Task - Nhiệm vụ):
+Biên soạn Kế hoạch bài dạy (Giáo án) hoàn chỉnh cho bài: "${payload.lessonTitle}" (Thời lượng: ${payload.lessonDuration}) và xuất thành file Word (.docx) dùng được ngay trên lớp.
+
+✦ C (Context - Bối cảnh & Căn cứ 4 Nguồn Tài liệu):
 ${payload.userEmail ? `(Giáo viên thực hiện: ${payload.userName || 'Thầy/Cô'} - Gmail: ${payload.userEmail})` : ''}
 
 1. THÔNG TIN BÀI HỌC:
@@ -457,10 +423,15 @@ ${payload.userEmail ? `(Giáo viên thực hiện: ${payload.userName || 'Thầy
 - Thời lượng: ${payload.lessonDuration}
 - Bộ sách giáo khoa: ${payload.curriculum || "Chương trình GDPT 2018"}
 
-2. DANH SÁCH CHỈ BÁO NĂNG LỰC SỐ CẦN TÍCH HỢP (GỒM MÃ CHỈ BÁO, YÊU CẦU CẦN ĐẠT & DIỄN GIẢI):
+2. CĂN CỨ PHỤ LỤC 1 (KẾ HOẠCH DẠY HỌC CỦA TỔ CHUYÊN MÔN):
+${payload.phuLuc1Text && payload.phuLuc1Text.trim() ? payload.phuLuc1Text : "(Sử dụng Yêu cầu cần đạt chuẩn, phân bổ số tiết theo từng tiết, thiết bị dạy học, học liệu số và phòng học theo quy định bộ môn)"}
+
+3. CĂN CỨ PHỤ LỤC 3 (KẾ HOẠCH GIÁO DỤC CỦA GIÁO VIÊN VỀ NĂNG LỰC SỐ) & DANH SÁCH CHỈ BÁO NLS:
+${payload.phuLuc3Text && payload.phuLuc3Text.trim() ? `* Trích từ Phụ lục 3 của giáo viên:\n${payload.phuLuc3Text}\n` : ''}
+* Danh sách chỉ báo năng lực số đăng ký tích hợp:
 ${competenciesText}
 
-3. HỌC LIỆU SỐ & THIẾT BỊ SỐ TRƯỜNG LỚP ĐÁP ỨNG ĐƯỢC:
+4. HỌC LIỆU SỐ, THIẾT BỊ SỐ & PHÒNG HỌC ĐÁP ỨNG ĐƯỢC:
 * Giáo viên chuẩn bị:
 ${teacherEqText}
 
@@ -470,23 +441,21 @@ ${studentEqText}
 * Công cụ / Ứng dụng số khai thác:
 ${toolsText}
 
-${payload.sgkImages && payload.sgkImages.length > 0 ? `4. ẢNH TRANG SÁCH GIÁO KHOA ĐÍNH KÈM (${payload.sgkImages.length} ảnh):
+${payload.sgkImages && payload.sgkImages.length > 0 ? `5. ẢNH TRANG SÁCH GIÁO KHOA ĐÍNH KÈM (${payload.sgkImages.length} ảnh):
 => MỤC ĐÍCH DUY NHẤT: Dùng để đối chiếu, so sánh nội dung kiến thức trong giáo án để đảm bảo hoàn toàn chuẩn xác, đồng bộ và không bị sai lệch so với SGK. TUYỆT ĐỐI KHÔNG CHÈN ẢNH TRANG SGK NÀY VÀO BÀI SOẠN!\n` : ''}
 
-5. TOÀN VĂN BÀI SOẠN GỐC CỦA GIÁO VIÊN (PHẢI GIỮ NGUYÊN 100%, TUYỆT ĐỐI KHÔNG TÓM TẮT/CẮT BỚT):
-${payload.oldLessonPlanText && payload.oldLessonPlanText.trim() ? payload.oldLessonPlanText : "(Chưa có văn bản bài soạn cũ, hãy xây dựng bài dạy mới hoàn chỉnh theo chuẩn CV 5512 và bôi đỏ toàn bộ các nội dung năng lực số tích hợp)"}
+6. BÀI SOẠN MẪU / GIÁO ÁN GỐC CỦA GIÁO VIÊN:
+${payload.oldLessonPlanText && payload.oldLessonPlanText.trim() ? payload.oldLessonPlanText : "(Chưa có văn bản bài soạn cũ, hãy xây dựng bài dạy mới hoàn chỉnh theo chuẩn CV 5512 với đầy đủ tiến trình các tiết và mục Phụ lục ở cuối)"}
 
-${payload.customNote ? `6. GHI CHÚ BỔ SUNG CỦA GIÁO VIÊN:\n${payload.customNote}\n` : ''}
+${payload.customNote ? `7. GHI CHÚ THÊM CỦA GIÁO VIÊN:\n${payload.customNote}\n` : ''}
 
-YÊU CẦU XUẤT BẢN NGHIÊM NGẶT - BẢO TỒN NGUYÊN VẸN 100%:
-- BẮT BUỘC giữ nguyên 100% toàn bộ nội dung của bài soạn cũ từ đầu đến cuối. TUYỆT ĐỐI KHÔNG ĐƯỢC TÓM TẮT hay rút gọn các hoạt động!
-- CẤU TRÚC CHIA CỘT: Giữ nguyên 100% các bảng chia cột (| HOẠT ĐỘNG CỦA GV VÀ HS | SẢN PHẨM DỰ KIẾN |) và các bảng con 3 cột.
-- BÀI TẬP VÀ CÂU HỎI TRẮC NGHIỆM: Giữ nguyên 100% tất cả các câu hỏi trắc nghiệm (Câu 1 đến Câu 5 cùng các phương án A, B, C, D) và bảng đáp án.
-- HÌNH ẢNH: Giữ nguyên tất cả các thẻ [[IMAGE:...]] có trong bài soạn cũ tại đúng vị trí ô/cột/đoạn ban đầu.
-- NĂNG LỰC SỐ: Tích hợp đầy đủ mã chỉ báo chuẩn (ví dụ: 1.1.CB1a, 2.1.TC1a...) cùng Yêu cầu cần đạt và Diễn giải cụ thể vào các vị trí tương ứng (chữ thường, bôi đỏ [[RED:...]], không in đậm, đóng ngoặc ]] đầy đủ).
-- TUYỆT ĐỐI KHÔNG xuất hiện thẻ HTML <br> hoặc <br>- ở ngoài các ô bảng.
-- KHÔNG sử dụng ký tự '*' hay dấu '.' trước các đề mục.
-- KHÔNG sử dụng ký tự '*' ở cuối các câu.`;
+✦ F / O (Format / Output Format - Quy chuẩn kỹ thuật & hiển thị):
+- Soạn đầy đủ tiến trình cả ${payload.lessonDuration} (nếu từ 2 tiết trở lên, phân bổ rõ ràng ranh giới TIẾT 1, TIẾT 2, TIẾT 3... với các hoạt động tương ứng).
+- Mỗi hoạt động đều có Bảng 2 cột (| Hoạt động của GV và HS | Sản phẩm dự kiến |) đủ 4 bước (Bước 1, Bước 2, Bước 3, Bước 4).
+- Bôi đỏ 100% các nội dung năng lực số bằng [[RED:...]] (chữ thường, không in đậm).
+- Bắt buộc tạo mục ## IV. PHỤ LỤC ở cuối bài gồm: Các Phiếu học tập số 1, 2, 3... và Bảng Rubric đánh giá hoạt động nhóm.
+- 100% công thức, biểu thức, tọa độ, hệ bất phương trình/hệ phương trình phải viết dạng LaTeX trong $...$ hoặc $$...$$.
+- Khổ A4, lề trái 2.5cm, các lề còn lại 1.5cm, Times New Roman 13pt. Không ký tự rác [...] hay [i].`;
 
   promptParts.push({ text: promptText });
 

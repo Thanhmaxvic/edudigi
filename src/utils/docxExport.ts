@@ -355,8 +355,8 @@ function appendFormattedRuns(runs: (TextRun | DocxMath)[], textSegment: string, 
 
   if (!cleanSegment) return;
 
-  // Math regex: $$...$$, \[...\], $...$, \(...\)
-  const mathRegex = /(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$]+?)\$|\\\(([\s\S]+?)\\\))/g;
+  // Math regex: $$...$$, \[...\], $...$, \(...\), \begin{cases}...\end{cases}
+  const mathRegex = /(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$]+?)\$|\\\(([\s\S]+?)\\\)|(\\begin\{cases\}[\s\S]+?\\end\{cases\}))/g;
   let lastIdx = 0;
   let match: RegExpExecArray | null;
 
@@ -408,7 +408,7 @@ function appendFormattedRuns(runs: (TextRun | DocxMath)[], textSegment: string, 
       pushTextSegment(textBefore);
     }
 
-    const formula = match[1] || match[2] || match[3] || match[4];
+    const formula = match[1] || match[2] || match[3] || match[4] || match[5];
     if (formula) {
       if (isRed) {
         // Red math formula: formatted cleanly as Unicode TextRun with red color

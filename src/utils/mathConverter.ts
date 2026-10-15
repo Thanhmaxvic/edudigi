@@ -5,6 +5,9 @@ import {
   MathRadical,
   MathSuperScript,
   MathSubScript,
+  MathCurlyBrackets,
+  MathRoundBrackets,
+  MathSquareBrackets,
 } from "docx";
 import katex from "katex";
 
@@ -186,8 +189,9 @@ export function latexToUnicode(latex: string): string {
 
 /**
  * Converts a math expression to a native Word Math component (docx.Math)
- * Uses native MathFraction, MathRadical, MathSuperScript, MathSubScript when possible,
- * and formats using the standard Word Equation font (Cambria Math).
+ * Uses native MathFraction, MathRadical, MathSuperScript, MathSubScript,
+ * MathCurlyBrackets, MathRoundBrackets, MathSquareBrackets when possible,
+ * generating true OMML Equations editable directly in Microsoft Word.
  */
 export function convertLatexToDocxMath(formula: string): Math {
   let clean = formula.trim();
@@ -197,6 +201,29 @@ export function convertLatexToDocxMath(formula: string): Math {
   else if (clean.startsWith("$") && clean.endsWith("$")) clean = clean.slice(1, -1).trim();
   else if (clean.startsWith("\\[") && clean.endsWith("\\]")) clean = clean.slice(2, -2).trim();
   else if (clean.startsWith("\\(") && clean.endsWith("\\)")) clean = clean.slice(2, -2).trim();
+
+  // Case 0: System of equations/inequalities \begin{cases} ... \end{cases} or \left\{ ... \right.
+  const casesMatch =
+    clean.match(/\\begin\{cases\}([\s\S]+?)\\end\{cases\}/) ||
+    clean.match(/\\left\\{([\s\S]+?)(?:\\right\.|\$|$)/);
+  if (casesMatch) {
+    const rawLines = casesMatch[1].split(/\\\\|\\cr/);
+    const lineRuns: MathRun[] = [];
+    rawLines.forEach((line, idx) => {
+      const cleanLine = latexToUnicode(line.replace(/&/g, " ").trim());
+      if (cleanLine) {
+        if (idx > 0) lineRuns.push(new MathRun("\n"));
+        lineRuns.push(new MathRun(cleanLine));
+      }
+    });
+    return new Math({
+      children: [
+        new MathCurlyBrackets({
+          children: lineRuns.length > 0 ? lineRuns : [new MathRun(latexToUnicode(casesMatch[1]))],
+        }),
+      ],
+    });
+  }
 
   // Case 1: Simple fraction \frac{a}{b}
   const fracMatch = clean.match(/^\\frac\{([^{}]+)\}\{([^{}]+)\}$/);
@@ -256,9 +283,33 @@ export function convertLatexToDocxMath(formula: string): Math {
     });
   }
 
-  // General Case: Convert to clean Unicode mathematical text rendered inside Word Math
+  // Case 5: Round brackets \left( ... \right)
+  const roundMatch = clean.match(/^\\left\(([\s\S]+?)\\right\)$/);
+  if (roundMatch) {
+    return new Math({
+      children: [
+        new MathRoundBrackets({
+          children: [new MathRun(latexToUnicode(roundMatch[1]))],
+        }),
+      ],
+    });
+  }
+
+  // Case 6: Square brackets \left[ ... \right]
+  const squareMatch = clean.match(/^\\left\[([\s\S]+?)\\right\]$/);
+  if (squareMatch) {
+    return new Math({
+      children: [
+        new MathSquareBrackets({
+          children: [new MathRun(latexToUnicode(squareMatch[1]))],
+        }),
+      ],
+    });
+  }
+
+  // General Case: Native Word Math Component (OMML) rendered with Cambria Math
   // Word's Math component automatically applies Cambria Math formatting, italicizing variables
-  // and ensuring professional typography.
+  // and ensuring professional typography as an editable Equation.
   const unicodeMath = latexToUnicode(clean);
   return new Math({
     children: [new MathRun(unicodeMath)],
@@ -291,8 +342,9 @@ export function containsMath(text: string): boolean {
     /\$[^$]+?\$/.test(text) ||
     /\\\(.+?\\\)/.test(text) ||
     /\\\[[\s\S]+?\\\]/.test(text) ||
+    /\\begin\{cases\}[\s\S]+?\\end\{cases\}/.test(text) ||
     /\\frac\{[^{}]+\}\{[^{}]+\}/.test(text) ||
     /\\sqrt\{[^{}]+\}/.test(text) ||
-    /\b(?:\\alpha|\\beta|\\gamma|\\Delta|\\pi|\\theta|\\Omega|\\lambda|\\mu|\\sigma|\\pm|\\times|\\le|\\ge|\\approx|\\neq)\b/.test(text)
+    /\b(?:\\alpha|\\beta|\\gamma|\\Delta|\\pi|\\theta|\\Omega|\\lambda|\\mu|\\sigma|\\pm|\\times|\\le|\\leq|\\ge|\\geq|\\approx|\\neq|\\in|\\subset|\\cup|\\cap)\b/.test(text)
   );
 }
