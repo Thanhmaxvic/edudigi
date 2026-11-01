@@ -718,10 +718,7 @@ export async function buildLessonPlanDocxBlob(
     const h = Math.round(vis.height * scale);
 
     if (vis.kind === "svg" && vis.svg) {
-      const svgBytes =
-        typeof Buffer !== "undefined"
-          ? new Uint8Array(Buffer.from(vis.svg, "utf-8"))
-          : new TextEncoder().encode(vis.svg);
+      const svgBytes = new TextEncoder().encode(vis.svg);
       const fallbackPng = rasterizedFallbacks.get(vis.id) || base64ToBytes(vis.base64Data);
       return new ImageRun({
         type: "svg",
@@ -1333,8 +1330,8 @@ export async function buildLessonPlanDocxBlob(
     ],
   });
 
-  const uint8Buffer = await Packer.toBuffer(doc);
-  const uint8Array = new Uint8Array(uint8Buffer);
+  const arrayBuffer = await Packer.toArrayBuffer(doc);
+  const uint8Array = new Uint8Array(arrayBuffer);
   const blob = new Blob([uint8Array], {
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
