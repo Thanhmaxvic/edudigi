@@ -307,14 +307,15 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
       let analysisResultText = '';
 
       try {
+        const cleanHeaderKey = (teacherAccount?.apiKey || '').replace(/[^\x20-\x7E]/g, '').trim();
         const response = await fetch('/api/analyze-sgk', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-user-gemini-key': teacherAccount?.apiKey || '',
+            'x-user-gemini-key': cleanHeaderKey,
           },
           body: JSON.stringify({
-            userApiKey: teacherAccount?.apiKey,
+            userApiKey: cleanHeaderKey,
             images: sgkImages.map((img) => ({ mimeType: img.mimeType, data: img.data })),
           }),
         });

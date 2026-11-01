@@ -19,6 +19,8 @@ import { CustomIndicatorEntry } from './components/CompetencySelector';
 import {
   TeacherAccount,
   getSavedTeacherAccount,
+  sanitizeApiKey,
+  toSafeAsciiHeader,
 } from './utils/userAccount';
 import {
   exportLessonPlanToDocx,
@@ -237,8 +239,9 @@ export default function App() {
 
     const competenciesPayload = [...customPayload, ...standardPayload];
 
+    const cleanUserApiKey = sanitizeApiKey(teacherAccount.apiKey);
     const payload = {
-      userApiKey: teacherAccount.apiKey,
+      userApiKey: cleanUserApiKey,
       userEmail: teacherAccount.email,
       userName: teacherAccount.name,
       subject,
@@ -264,6 +267,14 @@ export default function App() {
       formattingOptions,
     };
 
+    const isApiKeyAuthError = (msg?: string) =>
+      !!msg &&
+      (msg.includes('API key') ||
+        msg.includes('Khóa API') ||
+        msg.includes('Khóa Gemini') ||
+        msg.includes('Định dạng khóa API') ||
+        msg.includes('403'));
+
     try {
       let rawContent = '';
 
@@ -273,8 +284,8 @@ export default function App() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-user-gemini-key': teacherAccount.apiKey,
-            'x-user-email': teacherAccount.email,
+            'x-user-gemini-key': toSafeAsciiHeader(cleanUserApiKey),
+            'x-user-email': toSafeAsciiHeader(teacherAccount.email),
           },
           body: JSON.stringify(payload),
         });
@@ -287,11 +298,11 @@ export default function App() {
 
         if (response.ok && data?.rawContent) {
           rawContent = data.rawContent;
-        } else if (data?.error && (data.error.includes('API key') || data.error.includes('quota') || data.error.includes('403'))) {
+        } else if (data?.error && isApiKeyAuthError(data.error)) {
           throw new Error(data.error);
         }
       } catch (serverErr: any) {
-        if (serverErr.message?.includes('API key') || serverErr.message?.includes('Gmail')) {
+        if (isApiKeyAuthError(serverErr?.message)) {
           throw serverErr;
         }
         console.warn('Server API unavailable or timed out, executing direct client-side generation:', serverErr);
@@ -313,7 +324,7 @@ export default function App() {
     } catch (err: any) {
       console.error('Generation error:', err);
       // If error is about API key or quota, prompt modal
-      if (err.message?.includes('API key') || err.message?.includes('Gmail')) {
+      if (isApiKeyAuthError(err?.message)) {
         setAccountRequiredMessage(err.message);
         setIsAccountModalOpen(true);
       }

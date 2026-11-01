@@ -1,20 +1,41 @@
 import { GoogleGenAI } from "@google/genai";
 
+export function cleanGeminiApiKey(rawKey?: string): string {
+  if (!rawKey || typeof rawKey !== "string") return "";
+  return rawKey
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\s+/g, "");
+}
+
 const getGeminiClient = (userApiKey?: string) => {
-  const envKey = typeof process !== "undefined" && process.env ? process.env.GEMINI_API_KEY : undefined;
-  const apiKey = (userApiKey && userApiKey.trim()) || envKey;
-  if (!apiKey) {
+  const envKey =
+    typeof process !== "undefined" && process.env ? process.env.GEMINI_API_KEY : undefined;
+  const cleanKey = cleanGeminiApiKey(userApiKey) || cleanGeminiApiKey(envKey);
+  if (!cleanKey) {
     throw new Error(
       "Thầy/Cô vui lòng kết nối tài khoản Gmail và nhập khóa Gemini API cá nhân (miễn phí từ aistudio.google.com) để sử dụng, tránh làm cạn kiệt tài nguyên tín dụng của tác giả ứng dụng."
     );
   }
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(cleanKey)) {
+    throw new Error(
+      "Định dạng khóa API không hợp lệ. Khóa Gemini API chuẩn là chuỗi ký tự bắt đầu bằng AIzaSy... được sao chép từ trang aistudio.google.com/apikey."
+    );
+  }
+
+  const isBrowser = typeof window !== "undefined";
   return new GoogleGenAI({
-    apiKey: apiKey.trim(),
-    httpOptions: {
-      headers: {
-        "User-Agent": "aistudio-build",
-      },
-    },
+    apiKey: cleanKey,
+    ...(isBrowser
+      ? {}
+      : {
+          httpOptions: {
+            headers: {
+              "User-Agent": "aistudio-build",
+            },
+          },
+        }),
   });
 };
 
@@ -90,7 +111,28 @@ const CANDIDATE_MODELS = [
   "gemini-3.8-flash",
   "gemini-flash-latest",
   "gemini-3.1-flash-lite",
+  "gemini-flash-lite-latest",
 ];
+
+function formatGeminiAuthError(msg: string): string | null {
+  if (
+    msg.includes("API_KEY_INVALID") ||
+    msg.includes("API key not valid")
+  ) {
+    return "Khóa API không hợp lệ. Vui lòng kiểm tra lại mã khóa (bắt đầu bằng AIzaSy...) được tạo từ trang aistudio.google.com/apikey bằng tài khoản Gmail của Thầy/Cô.";
+  }
+  if (msg.includes("API_KEY_EXPIRED") || msg.includes("API key expired")) {
+    return "Khóa Gemini API này đã hết hạn. Thầy/Cô vui lòng mở aistudio.google.com/apikey để tạo khóa API mới miễn phí.";
+  }
+  if (
+    msg.includes("API_KEY_SERVICE_BLOCKED") ||
+    msg.includes("CONSUMER_SUSPENDED") ||
+    msg.includes("Generative Language API has not been used")
+  ) {
+    return "Khóa API hiện bị chặn quyền truy cập dịch vụ Generative Language API (403). Vui lòng tạo khóa API mới trong dự án mặc định trên aistudio.google.com/apikey.";
+  }
+  return null;
+}
 
 async function callGeminiWithFallback(
   ai: GoogleGenAI,
@@ -100,6 +142,7 @@ async function callGeminiWithFallback(
   }
 ) {
   let lastError: any = null;
+  let transientError: any = null;
 
   for (const modelName of CANDIDATE_MODELS) {
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -113,8 +156,14 @@ async function callGeminiWithFallback(
           return response;
         }
       } catch (err: any) {
-        lastError = err;
         const msg = err?.message || String(err);
+
+        // Fail fast immediately if the API key itself is invalid/expired/blocked
+        const authErr = formatGeminiAuthError(msg);
+        if (authErr) {
+          throw new Error(authErr);
+        }
+
         const isTemporarySpike =
           msg.includes("503") ||
           msg.includes("UNAVAILABLE") ||
@@ -125,18 +174,25 @@ async function callGeminiWithFallback(
           msg.includes("429");
 
         if (isTemporarySpike) {
+          transientError = err;
+          lastError = err;
           console.warn(
             `[Gemini Call] Model ${modelName} (lần thử ${attempt}) gặp tình trạng quá tải tạm thời (503/429). Đang tự động thử lại...`
           );
           await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
         } else {
+          // Do not overwrite an informative 503/429 error with a secondary model 404 error
+          if (!transientError) {
+            lastError = err;
+          }
           break;
         }
       }
     }
   }
 
-  const errorMsg = lastError?.message || "";
+  const primaryError = transientError || lastError;
+  const errorMsg = primaryError?.message || "";
   if (
     errorMsg.includes("503") ||
     errorMsg.includes("high demand") ||
@@ -146,43 +202,84 @@ async function callGeminiWithFallback(
       "Máy chủ Google AI hiện đang có lượng truy cập tăng đột biến trên toàn cầu (503 High Demand). Hệ thống đã tự động thử các mô hình dự phòng nhưng chưa thành công. Thầy/Cô vui lòng bấm nút thử lại sau 5-10 giây."
     );
   }
+  if (errorMsg.includes("429") || errorMsg.includes("Resource has been exhausted")) {
+    throw new Error(
+      "Tài khoản Gmail hiện đã chạm giới hạn tần suất gọi API tạm thời của Google (429 Quota/Rate Limit). Thầy/Cô vui lòng đợi khoảng 30-60 giây rồi thử lại."
+    );
+  }
 
-  throw lastError;
+  throw primaryError;
 }
 
 export async function handleVerifyAccount(apiKey: string) {
-  if (!apiKey || !apiKey.trim()) {
+  const cleanKey = cleanGeminiApiKey(apiKey);
+  if (!cleanKey) {
     throw new Error("Vui lòng nhập khóa API được tạo từ tài khoản Gmail của Thầy/Cô.");
   }
-  const cleanKey = apiKey.trim();
-  const ai = new GoogleGenAI({
-    apiKey: cleanKey,
-    httpOptions: {
-      headers: {
-        "User-Agent": "aistudio-build",
-      },
-    },
-  });
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(cleanKey)) {
+    throw new Error(
+      "Định dạng khóa API không hợp lệ. Khóa Gemini API chuẩn bắt đầu bằng AIzaSy... và không chứa khoảng trắng hay dấu tiếng Việt."
+    );
+  }
 
+  // Step 1: Fast, zero-quota REST check against Google's models endpoint (works in both Node & Browser CORS)
   try {
-    await callGeminiWithFallback(ai, {
-      contents: "Xin chào",
-      config: {
-        maxOutputTokens: 10,
-      },
-    });
+    const modelsUrl = `https://generativelanguage.googleapis.com/v1beta/models?pageSize=20&key=${encodeURIComponent(
+      cleanKey
+    )}`;
+    const res = await fetch(modelsUrl, { method: "GET" });
+    const text = await res.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {}
 
-    return {
-      valid: true,
-      message: "Xác thực tài khoản Gmail và khóa Gemini API cá nhân thành công! Hạn ngạch miễn phí đã sẵn sàng.",
-    };
+    if (res.ok && data && Array.isArray(data.models)) {
+      return {
+        valid: true,
+        message:
+          "Xác thực tài khoản Gmail và khóa Gemini API cá nhân thành công! Hạn ngạch miễn phí đã sẵn sàng.",
+      };
+    }
+
+    const errPayload = JSON.stringify(data?.error || text || "");
+    const authErr = formatGeminiAuthError(errPayload);
+    if (authErr) {
+      throw new Error(authErr);
+    }
+
+    // Step 2: If models.list returned 403 (e.g. key scoped only to generateContent), verify via lightweight generateContent
+    if (res.status === 403 || res.status >= 500) {
+      const ai = getGeminiClient(cleanKey);
+      await callGeminiWithFallback(ai, {
+        contents: "Xin chào",
+        config: { maxOutputTokens: 5 },
+      });
+      return {
+        valid: true,
+        message:
+          "Xác thực tài khoản Gmail và khóa Gemini API cá nhân thành công! Hạn ngạch miễn phí đã sẵn sàng.",
+      };
+    }
+
+    throw new Error(
+      data?.error?.message || `Không thể xác thực khóa API (Mã phản hồi HTTP ${res.status}).`
+    );
   } catch (err: any) {
     console.error("Account verification error:", err);
-    throw new Error(
-      err.message?.includes("API key not valid")
-        ? "Khóa API không hợp lệ. Vui lòng kiểm tra lại mã khóa tạo từ trang aistudio.google.com/apikey bằng tài khoản Gmail của Thầy/Cô."
-        : `Lỗi kết nối tài khoản: ${err.message || "Không thể xác thực khóa"}`
-    );
+    const msg = err?.message || String(err);
+    const authErr = formatGeminiAuthError(msg);
+    if (authErr) {
+      throw new Error(authErr);
+    }
+    if (
+      msg.includes("Khóa API") ||
+      msg.includes("Định dạng khóa API") ||
+      msg.includes("Khóa Gemini API")
+    ) {
+      throw err;
+    }
+    throw new Error(`Lỗi kết nối tài khoản: ${msg || "Không thể xác thực khóa"}`);
   }
 }
 

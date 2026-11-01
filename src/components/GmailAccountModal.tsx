@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   TeacherAccount,
   saveTeacherAccount,
   clearTeacherAccount,
+  sanitizeApiKey,
 } from '../utils/userAccount';
 import {
   Key,
@@ -14,7 +15,6 @@ import {
   Eye,
   EyeOff,
   Sparkles,
-  HelpCircle,
   LogOut,
   UserCheck,
 } from 'lucide-react';
@@ -45,18 +45,48 @@ export const GmailAccountModal: React.FC<GmailAccountModalProps> = ({
     message: string;
   } | null>(null);
 
+  useEffect(() => {
+    if (isOpen) {
+      setEmail(currentAccount?.email || '');
+      setApiKey(currentAccount?.apiKey || '');
+      setName(currentAccount?.name || '');
+      setVerificationResult(null);
+    }
+  }, [isOpen, currentAccount]);
+
   if (!isOpen) return null;
 
   const handleVerifyAndSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!email.trim() || !email.includes('@')) {
-      alert('Vui lòng nhập địa chỉ Gmail hợp lệ (VD: tengiaovien@gmail.com)!');
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setVerificationResult({
+        success: false,
+        message: 'Vui lòng nhập địa chỉ Gmail hợp lệ (VD: tengiaovien@gmail.com)!',
+      });
       return;
     }
 
-    if (!apiKey.trim()) {
-      alert('Vui lòng dán khóa Gemini API tạo từ tài khoản Gmail của Thầy/Cô!');
+    const cleanKey = sanitizeApiKey(apiKey);
+    if (!cleanKey) {
+      setVerificationResult({
+        success: false,
+        message: 'Vui lòng dán khóa Gemini API tạo từ tài khoản Gmail của Thầy/Cô!',
+      });
+      return;
+    }
+
+    if (cleanKey !== apiKey) {
+      setApiKey(cleanKey);
+    }
+
+    if (!/^[A-Za-z0-9_-]{20,}$/.test(cleanKey)) {
+      setVerificationResult({
+        success: false,
+        message:
+          'Định dạng khóa API không hợp lệ. Khóa Gemini API chuẩn bắt đầu bằng AIzaSy... và không chứa khoảng trắng hay dấu tiếng Việt.',
+      });
       return;
     }
 
@@ -64,30 +94,65 @@ export const GmailAccountModal: React.FC<GmailAccountModalProps> = ({
     setVerificationResult(null);
 
     try {
-      const response = await fetch('/api/verify-account', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKey.trim() }),
-      });
+      let verified = false;
+      let successMessage =
+        'Xác thực thành công! Tài khoản Gmail của Thầy/Cô đã sẵn sàng sử dụng.';
 
-      let data: any = null;
-      const textResponse = await response.text();
+      // Tier 1: Verify via backend API endpoint (/api/verify-account)
       try {
-        data = JSON.parse(textResponse);
-      } catch (_) {
-        if (!response.ok) {
-          throw new Error('Máy chủ đang bận hoặc gặp sự cố phản hồi. Vui lòng thử lại sau giây lát.');
+        const response = await fetch('/api/verify-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey: cleanKey }),
+        });
+
+        const textResponse = await response.text();
+        let data: any = null;
+        try {
+          data = JSON.parse(textResponse);
+        } catch (_) {}
+
+        if (response.ok && data && (data.valid || !data.error)) {
+          verified = true;
+          if (data.message) successMessage = data.message;
+        } else if (response.status >= 400 && response.status < 500 && data?.error) {
+          // Explicit 4xx validation error from Google / API handler (e.g. invalid or expired key)
+          throw new Error(data.error);
+        }
+      } catch (serverErr: any) {
+        const msg = serverErr?.message || '';
+        if (
+          msg.includes('Khóa API') ||
+          msg.includes('Định dạng khóa API') ||
+          msg.includes('Khóa Gemini API') ||
+          msg.includes('API key not valid')
+        ) {
+          throw serverErr;
+        }
+        console.warn(
+          'Backend /api/verify-account unavailable or returned 5xx, falling back to direct client verification:',
+          serverErr
+        );
+      }
+
+      // Tier 2: Automatic direct browser verification against Google Gemini API (immune to serverless cold-start/5xx)
+      if (!verified) {
+        const { handleVerifyAccount } = await import('../server/geminiHandler');
+        const directResult = await handleVerifyAccount(cleanKey);
+        if (directResult?.valid) {
+          verified = true;
+          if (directResult.message) successMessage = directResult.message;
         }
       }
 
-      if (!response.ok || !data || data.error) {
-        throw new Error(data?.error || 'Khóa API không hợp lệ hoặc đã hết hạn.');
+      if (!verified) {
+        throw new Error('Khóa API không hợp lệ hoặc không thể kết nối đến Google Gemini.');
       }
 
       const newAccount: TeacherAccount = {
-        email: email.trim(),
-        apiKey: apiKey.trim(),
-        name: name.trim() || email.split('@')[0],
+        email: cleanEmail,
+        apiKey: cleanKey,
+        name: name.trim() || cleanEmail.split('@')[0],
         connectedAt: new Date().toISOString(),
       };
 
@@ -96,7 +161,7 @@ export const GmailAccountModal: React.FC<GmailAccountModalProps> = ({
 
       setVerificationResult({
         success: true,
-        message: 'Xác thực thành công! Tài khoản Gmail của Thầy/Cô đã sẵn sàng sử dụng.',
+        message: successMessage,
       });
 
       setTimeout(() => {
@@ -106,7 +171,7 @@ export const GmailAccountModal: React.FC<GmailAccountModalProps> = ({
       console.error('Verification error:', err);
       setVerificationResult({
         success: false,
-        message: err.message || 'Không thể xác thực khóa. Vui lòng kiểm tra lại.',
+        message: err?.message || 'Không thể xác thực khóa. Vui lòng kiểm tra lại.',
       });
     } finally {
       setIsVerifying(false);
@@ -135,7 +200,7 @@ export const GmailAccountModal: React.FC<GmailAccountModalProps> = ({
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-bold">
-                Tài Khoản Gmail & Hạn Ngạch Cá Nhân
+                Tài Khoản Gmail &amp; Hạn Ngạch Cá Nhân
               </h3>
               <p className="text-xs text-indigo-200">
                 Sử dụng hạn ngạch AI miễn phí của chính Thầy/Cô
@@ -235,7 +300,11 @@ export const GmailAccountModal: React.FC<GmailAccountModalProps> = ({
                 Bấm vào nút xanh <b>&quot;Create API key&quot;</b> (Tạo khóa API) &gt; chọn dự án mặc định &gt; bấm <b>&quot;Create key in existing project&quot;</b> (hoàn toàn miễn phí).
               </li>
               <li>
-                Sao chép chuỗi ký tự (bắt đầu bằng <code className="text-indigo-700 font-mono font-bold bg-white px-1 py-0.5 rounded border border-slate-200">AIzaSy...</code>) và dán vào ô bên dưới.
+                Sao chép chuỗi ký tự (bắt đầu bằng{' '}
+                <code className="text-indigo-700 font-mono font-bold bg-white px-1 py-0.5 rounded border border-slate-200">
+                  AIzaSy...
+                </code>
+                ) và dán vào ô bên dưới.
               </li>
             </ol>
           </div>
@@ -284,7 +353,12 @@ export const GmailAccountModal: React.FC<GmailAccountModalProps> = ({
                 <input
                   type={showKey ? 'text' : 'password'}
                   value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
+                  onChange={(e) => {
+                    setApiKey(e.target.value);
+                    if (verificationResult && !verificationResult.success) {
+                      setVerificationResult(null);
+                    }
+                  }}
                   placeholder="Dán mã khóa AIzaSy... đã tạo từ Gmail"
                   className="w-full text-xs pl-9 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono"
                   required
@@ -342,7 +416,7 @@ export const GmailAccountModal: React.FC<GmailAccountModalProps> = ({
                 ) : (
                   <>
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Lưu & Kích hoạt Tài khoản Gmail</span>
+                    <span>Lưu &amp; Kích hoạt Tài khoản Gmail</span>
                   </>
                 )}
               </button>

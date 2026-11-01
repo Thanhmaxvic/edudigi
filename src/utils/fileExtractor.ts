@@ -174,15 +174,16 @@ export async function extractTextFromFile(
     let pdfText = '';
 
     try {
+      const cleanHeaderKey = (userApiKey || '').replace(/[^\x20-\x7E]/g, '').trim();
       const res = await fetch('/api/extract-plan-pdf', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-gemini-key': userApiKey || '',
+          'x-user-gemini-key': cleanHeaderKey,
         },
         body: JSON.stringify({
           pdfBase64,
-          userApiKey,
+          userApiKey: cleanHeaderKey,
         }),
       });
 

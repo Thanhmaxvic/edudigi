@@ -1,9 +1,10 @@
 export const maxDuration = 60;
-import { handleAnalyzeSgk } from './_lib/geminiHandler';
 
 export default async function handler(req: any, res: any) {
+  if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
   try {
+    const { handleAnalyzeSgk } = await import('./_lib/geminiHandler.js');
     let body = req.body;
     if (typeof body === 'string') {
       try {
@@ -11,11 +12,11 @@ export default async function handler(req: any, res: any) {
       } catch (_) {}
     }
     const { images, userApiKey: bodyKey } = body || {};
-    const userApiKey = req.headers['x-user-gemini-key'] || bodyKey;
+    const userApiKey = req.headers?.['x-user-gemini-key'] || bodyKey;
     const result = await handleAnalyzeSgk(images, userApiKey);
-    res.status(200).json(result);
+    return res.status(200).json(result);
   } catch (err: any) {
     console.error('Error analyzing SGK:', err);
-    res.status(500).json({ error: err.message || 'Lỗi phân tích sách giáo khoa' });
+    return res.status(500).json({ error: err?.message || 'Lỗi phân tích sách giáo khoa' });
   }
 }
