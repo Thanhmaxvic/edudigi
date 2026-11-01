@@ -19,8 +19,7 @@ function serverApiPlugin(): Plugin {
           });
           req.on('end', async () => {
             try {
-              
-              const { handleVerifyAccount } = await import('./src/server/geminiHandler');
+              const { handleVerifyAccount } = await server.ssrLoadModule('/src/server/geminiHandler.ts');
               const { apiKey } = JSON.parse(body);
               const result = await handleVerifyAccount(apiKey);
               res.statusCode = 200;
@@ -43,8 +42,7 @@ function serverApiPlugin(): Plugin {
           });
           req.on('end', async () => {
             try {
-              
-              const { handleGenerateLessonPlan } = await import('./src/server/geminiHandler');
+              const { handleGenerateLessonPlan } = await server.ssrLoadModule('/src/server/geminiHandler.ts');
               const payload = JSON.parse(body);
               const userApiKey = (req.headers['x-user-gemini-key'] as string) || payload.userApiKey;
               const userEmail = (req.headers['x-user-email'] as string) || payload.userEmail;
@@ -73,8 +71,7 @@ function serverApiPlugin(): Plugin {
           });
           req.on('end', async () => {
             try {
-              
-              const { handleAnalyzeSgk } = await import('./src/server/geminiHandler');
+              const { handleAnalyzeSgk } = await server.ssrLoadModule('/src/server/geminiHandler.ts');
               const { images, userApiKey: bodyKey } = JSON.parse(body);
               const userApiKey = (req.headers['x-user-gemini-key'] as string) || bodyKey;
               const result = await handleAnalyzeSgk(images, userApiKey);
@@ -86,6 +83,30 @@ function serverApiPlugin(): Plugin {
               res.statusCode = 500;
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ error: err.message || 'Lỗi phân tích sách giáo khoa' }));
+            }
+          });
+          return;
+        }
+
+        if (req.method === 'POST' && req.url === '/api/extract-plan-pdf') {
+          let body = '';
+          req.on('data', chunk => {
+            body += chunk;
+          });
+          req.on('end', async () => {
+            try {
+              const { handleExtractPlanPdf } = await server.ssrLoadModule('/src/server/geminiHandler.ts');
+              const { pdfBase64, userApiKey: bodyKey } = JSON.parse(body);
+              const userApiKey = (req.headers['x-user-gemini-key'] as string) || bodyKey;
+              const result = await handleExtractPlanPdf(pdfBase64, userApiKey);
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify(result));
+            } catch (err: any) {
+              console.error('Error extracting PDF:', err);
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: err.message || 'Lỗi trích xuất tệp PDF giáo án' }));
             }
           });
           return;

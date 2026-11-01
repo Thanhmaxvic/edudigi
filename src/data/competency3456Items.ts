@@ -739,6 +739,24 @@ export const COMPETENCY_3456_ITEMS: Competency3456Item[] = [
     yccd: 'a. Chỉ ra được những tác động cơ bản và phổ biến của công nghệ số và việc sử dụng công nghệ số đối với môi trường.',
     fullExplanation: 'Với vấn đề đơn giản: Chỉ ra được tác động cơ bản của công nghệ số đối với môi trường.'
   },
+  {
+    code: '4.1.NC1a', domainNum: 4, domainName: '4. An toàn',
+    subCode: '4.1', subName: '4.1. Bảo vệ thiết bị',
+    content: 'Bảo vệ thiết bị và nội dung số; hiểu rủi ro và biện pháp an toàn, bảo mật.',
+    levelCode: 'L10-L11-L12 (NC1)', gradeLevel: 'THPT (L10-12)',
+    teachingTask: 'Khi tự mình và hướng dẫn người khác, học sinh có thể:',
+    yccd: 'a. Áp dụng được các cách thức khác nhau để bảo vệ thiết bị và nội dung số trong môi trường học tập trực tuyến.',
+    fullExplanation: 'Tự mình và hướng dẫn người khác: Áp dụng được các cách thức khác nhau để bảo vệ thiết bị và nội dung số.'
+  },
+  {
+    code: '4.2.NC1a', domainNum: 4, domainName: '4. An toàn',
+    subCode: '4.2', subName: '4.2. Bảo vệ dữ liệu cá nhân và quyền riêng tư',
+    content: 'Bảo vệ dữ liệu cá nhân và quyền riêng tư trong môi trường số.',
+    levelCode: 'L10-L11-L12 (NC1)', gradeLevel: 'THPT (L10-12)',
+    teachingTask: 'Khi tự mình và hướng dẫn người khác, học sinh có thể:',
+    yccd: 'a. Áp dụng được các biện pháp bảo mật dữ liệu cá nhân và quyền riêng tư khi chia sẻ học liệu số.',
+    fullExplanation: 'Tự mình và hướng dẫn người khác: Áp dụng được các biện pháp bảo mật dữ liệu cá nhân và quyền riêng tư.'
+  },
 
   // --- Miền 5: Giải quyết vấn đề ---
   {
@@ -760,6 +778,24 @@ export const COMPETENCY_3456_ITEMS: Competency3456Item[] = [
     fullExplanation: 'Với vấn đề đơn giản: Chỉ ra được các vấn đề kỹ thuật thông thường khi vận hành thiết bị.'
   },
   {
+    code: '5.1.TC2a', domainNum: 5, domainName: '5. Giải quyết vấn đề',
+    subCode: '5.1', subName: '5.1. Giải quyết các vấn đề kỹ thuật',
+    content: 'Xác định các vấn đề kỹ thuật khi vận hành thiết bị, sử dụng môi trường số và giải quyết chúng.',
+    levelCode: 'L8-L9 (TC2)', gradeLevel: 'THCS (L8-9)',
+    teachingTask: 'Dựa trên nhu cầu riêng, học sinh có thể tự mình:',
+    yccd: 'a. Phân biệt và khắc phục được các sự cố kỹ thuật phổ biến khi vận hành thiết bị và phần mềm học tập.',
+    fullExplanation: 'Dựa trên nhu cầu riêng: Phân biệt và khắc phục được các sự cố kỹ thuật phổ biến khi vận hành thiết bị và phần mềm học tập.'
+  },
+  {
+    code: '5.1.NC1a', domainNum: 5, domainName: '5. Giải quyết vấn đề',
+    subCode: '5.1', subName: '5.1. Giải quyết các vấn đề kỹ thuật',
+    content: 'Xác định các vấn đề kỹ thuật khi vận hành thiết bị, sử dụng môi trường số và giải quyết chúng.',
+    levelCode: 'L10-L11-L12 (NC1)', gradeLevel: 'THPT (L10-12)',
+    teachingTask: 'Khi tự mình và hướng dẫn người khác, học sinh có thể:',
+    yccd: 'a. Đánh giá và giải quyết linh hoạt các vấn đề kỹ thuật phát sinh khi vận hành thiết bị và môi trường học tập số.',
+    fullExplanation: 'Tự mình và hướng dẫn người khác: Đánh giá và giải quyết linh hoạt các vấn đề kỹ thuật khi vận hành thiết bị và môi trường số.'
+  },
+  {
     code: '5.2.TC1a', domainNum: 5, domainName: '5. Giải quyết vấn đề',
     subCode: '5.2', subName: '5.2. Xác định nhu cầu và giải pháp công nghệ',
     content: 'Đánh giá nhu cầu và lựa chọn sử dụng công cụ số cùng giải pháp công nghệ khả thi.',
@@ -769,6 +805,42 @@ export const COMPETENCY_3456_ITEMS: Competency3456Item[] = [
     fullExplanation: 'Với vấn đề đơn giản: Chỉ ra được những nhu cầu được xác định rõ ràng và thường xuyên.'
   },
   {
+    code: '5.2.TC2a', domainNum: 5, domainName: '5. Giải quyết vấn đề',
+    subCode: '5.2', subName: '5.2. Xác định nhu cầu và giải pháp công nghệ',
+    content: 'Đánh giá nhu cầu và lựa chọn sử dụng công cụ số cùng giải pháp công nghệ khả thi.',
+    levelCode: 'L8-L9 (TC2)', gradeLevel: 'THCS (L8-9)',
+    teachingTask: 'Dựa trên nhu cầu riêng, học sinh có thể tự mình:',
+    yccd: 'a. Giải thích được nhu cầu công nghệ để lựa chọn công cụ số phù hợp cho nhiệm vụ học tập.',
+    fullExplanation: 'Dựa trên nhu cầu riêng: Giải thích được nhu cầu công nghệ để lựa chọn công cụ số phù hợp.'
+  },
+  {
+    code: '5.2.TC2b', domainNum: 5, domainName: '5. Giải quyết vấn đề',
+    subCode: '5.2', subName: '5.2. Xác định nhu cầu và giải pháp công nghệ',
+    content: 'Đánh giá nhu cầu và lựa chọn sử dụng công cụ số cùng giải pháp công nghệ khả thi.',
+    levelCode: 'L8-L9 (TC2)', gradeLevel: 'THCS (L8-9)',
+    teachingTask: 'Dựa trên nhu cầu riêng, học sinh có thể tự mình:',
+    yccd: 'b. Lựa chọn và sử dụng được phần mềm mô phỏng, đồ họa (GeoGebra, PhET...) để giải quyết bài tập trực quan.',
+    fullExplanation: 'Dựa trên nhu cầu riêng: Lựa chọn và sử dụng được phần mềm mô phỏng, đồ họa (GeoGebra, PhET...) để giải quyết bài tập trực quan.'
+  },
+  {
+    code: '5.2.NC1a', domainNum: 5, domainName: '5. Giải quyết vấn đề',
+    subCode: '5.2', subName: '5.2. Xác định nhu cầu và giải pháp công nghệ',
+    content: 'Đánh giá nhu cầu và lựa chọn sử dụng công cụ số cùng giải pháp công nghệ khả thi.',
+    levelCode: 'L10-L11-L12 (NC1)', gradeLevel: 'THPT (L10-12)',
+    teachingTask: 'Khi tự mình và hướng dẫn người khác, học sinh có thể:',
+    yccd: 'a. Đánh giá được nhu cầu để xác định và điều chỉnh các giải pháp công nghệ phù hợp với bài toán thực tiễn.',
+    fullExplanation: 'Tự mình và hướng dẫn người khác: Đánh giá được nhu cầu để xác định và điều chỉnh giải pháp công nghệ phù hợp.'
+  },
+  {
+    code: '5.2.NC1b', domainNum: 5, domainName: '5. Giải quyết vấn đề',
+    subCode: '5.2', subName: '5.2. Xác định nhu cầu và giải pháp công nghệ',
+    content: 'Đánh giá nhu cầu và lựa chọn sử dụng công cụ số cùng giải pháp công nghệ khả thi.',
+    levelCode: 'L10-L11-L12 (NC1)', gradeLevel: 'THPT (L10-12)',
+    teachingTask: 'Khi tự mình và hướng dẫn người khác, học sinh có thể:',
+    yccd: 'b. Lựa chọn và sử dụng thành thạo phần mềm chuyên dụng, công cụ đồ họa/mô phỏng toán học - khoa học (như GeoGebra, Desmos, PhET...) để biểu diễn trực quan, xác định nghiệm và giải quyết vấn đề.',
+    fullExplanation: 'Tự mình và hướng dẫn người khác: Lựa chọn và sử dụng thành thạo công cụ số, phần mềm đồ họa/mô phỏng (GeoGebra, Desmos, PhET...) để biểu diễn đồ thị, miền nghiệm, mô hình hóa và giải quyết bài toán.'
+  },
+  {
     code: '5.3.TC1a', domainNum: 5, domainName: '5. Giải quyết vấn đề',
     subCode: '5.3', subName: '5.3. Sử dụng sáng tạo công nghệ số',
     content: 'Sử dụng công cụ số tạo ra kiến thức, đổi mới quy trình và sản phẩm.',
@@ -776,6 +848,15 @@ export const COMPETENCY_3456_ITEMS: Competency3456Item[] = [
     teachingTask: 'Với các vấn đề đơn giản, học sinh có thể tự mình:',
     yccd: 'a. Chọn được các công cụ và công nghệ số có thể được sử dụng để tạo ra kiến thức rõ ràng cũng như các quy trình và sản phẩm đổi mới được xác định rõ ràng.',
     fullExplanation: 'Với vấn đề đơn giản: Chọn được các công cụ và công nghệ số để tạo ra kiến thức rõ ràng và sản phẩm đổi mới.'
+  },
+  {
+    code: '5.3.NC1a', domainNum: 5, domainName: '5. Giải quyết vấn đề',
+    subCode: '5.3', subName: '5.3. Sử dụng sáng tạo công nghệ số',
+    content: 'Sử dụng công cụ số tạo ra kiến thức, đổi mới quy trình và sản phẩm.',
+    levelCode: 'L10-L11-L12 (NC1)', gradeLevel: 'THPT (L10-12)',
+    teachingTask: 'Khi tự mình và hướng dẫn người khác, học sinh có thể:',
+    yccd: 'a. Vận dụng sáng tạo các công cụ và nền tảng công nghệ số để thiết kế sản phẩm học tập, mô hình giải quyết vấn đề thực tế.',
+    fullExplanation: 'Tự mình và hướng dẫn người khác: Vận dụng sáng tạo các công cụ và nền tảng công nghệ số để giải quyết vấn đề thực tế.'
   },
 
   // --- Miền 6: Ứng dụng trí tuệ nhân tạo (AI) ---
@@ -888,6 +969,24 @@ export const COMPETENCY_3456_ITEMS: Competency3456Item[] = [
     fullExplanation: 'Dựa trên nhu cầu riêng: Tối ưu hóa việc sử dụng các công cụ AI để đạt hiệu quả cao hơn.'
   },
   {
+    code: '6.2.NC1a', domainNum: 6, domainName: '6. Ứng dụng trí tuệ nhân tạo',
+    subCode: '6.2', subName: '6.2. Sử dụng trí tuệ nhân tạo',
+    content: 'Sử dụng hiệu quả các hệ thống AI để tạo nội dung, khám phá kiến thức và giải quyết vấn đề.',
+    levelCode: 'L10-L11-L12 (NC1)', gradeLevel: 'THPT (L10-12)',
+    teachingTask: 'Khi tự mình và hướng dẫn người khác, học sinh có thể:',
+    yccd: 'a. Sử dụng hiệu quả các công cụ AI (như ChatGPT, Gemini...) để gợi mở tình huống thực tế, tổng hợp thông tin, hỗ trợ xây dựng sơ đồ tư duy hoặc báo cáo trình chiếu.',
+    fullExplanation: 'Tự mình và hướng dẫn người khác: Sử dụng hiệu quả và có kiểm chứng các công cụ AI (ChatGPT, Gemini...) để gợi mở tình huống thực tế, hỗ trợ xây dựng sơ đồ tư duy và giải quyết vấn đề học tập.'
+  },
+  {
+    code: '6.2.NC1b', domainNum: 6, domainName: '6. Ứng dụng trí tuệ nhân tạo',
+    subCode: '6.2', subName: '6.2. Sử dụng trí tuệ nhân tạo',
+    content: 'Sử dụng hiệu quả các hệ thống AI để tạo nội dung, khám phá kiến thức và giải quyết vấn đề.',
+    levelCode: 'L10-L11-L12 (NC1)', gradeLevel: 'THPT (L10-12)',
+    teachingTask: 'Khi tự mình và hướng dẫn người khác, học sinh có thể:',
+    yccd: 'b. Tuân thủ đạo đức học thuật, kiểm chứng chéo kết quả từ AI với kiến thức SGK và nguồn chính thống.',
+    fullExplanation: 'Tự mình và hướng dẫn người khác: Tuân thủ đạo đức học thuật, kiểm chứng chéo kết quả từ AI với kiến thức SGK.'
+  },
+  {
     code: '6.3.CB1a', domainNum: 6, domainName: '6. Ứng dụng trí tuệ nhân tạo',
     subCode: '6.3', subName: '6.3. Đánh giá trí tuệ nhân tạo',
     content: 'Đánh giá và lọc thông tin từ các nguồn được tạo ra hoặc xử lý bằng AI, hiểu tính đáng tin cậy.',
@@ -922,5 +1021,40 @@ export const COMPETENCY_3456_ITEMS: Competency3456Item[] = [
     teachingTask: 'Với các vấn đề đơn giản, học sinh có thể tự mình:',
     yccd: 'b. Tóm tắt được các đặc điểm và ứng dụng của hệ thống AI.',
     fullExplanation: 'Với vấn đề đơn giản: Tóm tắt được các đặc điểm và ứng dụng của hệ thống AI.'
+  },
+  {
+    code: '6.3.NC1a', domainNum: 6, domainName: '6. Ứng dụng trí tuệ nhân tạo',
+    subCode: '6.3', subName: '6.3. Đánh giá trí tuệ nhân tạo',
+    content: 'Đánh giá và lọc thông tin từ các nguồn được tạo ra hoặc xử lý bằng AI, hiểu tính đáng tin cậy.',
+    levelCode: 'L10-L11-L12 (NC1)', gradeLevel: 'THPT (L10-12)',
+    teachingTask: 'Khi tự mình và hướng dẫn người khác, học sinh có thể:',
+    yccd: 'a. Đánh giá phản biện độ chính xác, tính khách quan và giới hạn của nội dung do hệ thống AI tạo ra.',
+    fullExplanation: 'Tự mình và hướng dẫn người khác: Đánh giá phản biện độ chính xác và tính đáng tin cậy của thông tin do AI tạo ra.'
   }
 ];
+
+/**
+ * Trả về bộ 4 mã chỉ báo năng lực số cốt lõi chuẩn VB 3456 đúng bậc học / khối lớp đã chọn
+ */
+export function getSuggestedCodesForGrade(grade: string): string[] {
+  const numMatch = (grade || '').match(/\d+/);
+  const gradeNum = numMatch ? parseInt(numMatch[0], 10) : 7;
+
+  let candidates: string[];
+  if (gradeNum <= 3) {
+    candidates = ['1.1.CB1a', '2.1.CB1a', '3.1.CB1a', '6.2.CB1a'];
+  } else if (gradeNum <= 5) {
+    candidates = ['1.1.CB2b', '2.1.CB2a', '3.1.CB2a', '6.1.CB2a'];
+  } else if (gradeNum <= 7) {
+    candidates = ['1.1.TC1b', '1.2.TC1a', '2.2.TC1a', '6.2.TC1a'];
+  } else if (gradeNum <= 9) {
+    candidates = ['1.1.TC2b', '2.4.TC2a', '5.2.TC2b', '6.2.TC2a'];
+  } else {
+    // Lớp 10, 11, 12 (NC1) - khớp chuẩn giáo án mẫu tích hợp năng lực số THPT
+    candidates = ['1.1.NC1b', '2.1.NC1a', '5.2.NC1b', '6.2.NC1a'];
+  }
+
+  const validSet = new Set(COMPETENCY_3456_ITEMS.map((item) => item.code));
+  return candidates.filter((c) => validSet.has(c));
+}
+

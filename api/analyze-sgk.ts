@@ -16,6 +16,6 @@ export default async function handler(req: any, res: any) {
     res.status(200).json(result);
   } catch (err: any) {
     console.error('Error analyzing SGK:', err);
-    res.status(500).json({ error: err.message || 'Lá»—i phÃ¢n tÃ­ch sÃ¡ch giÃ¡o khoa' });
+    res.status(500).json({ error: err.message || 'Lỗi phân tích sách giáo khoa' });
   }
 }

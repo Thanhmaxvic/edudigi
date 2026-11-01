@@ -20,6 +20,6 @@ export default async function handler(req: any, res: any) {
     res.status(200).json(result);
   } catch (err: any) {
     console.error('Error generating lesson plan:', err);
-    res.status(500).json({ error: err.message || 'Lá»—i xá»­ lÃ½ káº¿ hoáº¡ch bÃ i dáº¡y' });
+    res.status(500).json({ error: err.message || 'Lỗi xử lý kế hoạch bài dạy' });
   }
 }

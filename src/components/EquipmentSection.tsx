@@ -252,20 +252,24 @@ export const EquipmentSection: React.FC<EquipmentSectionProps> = ({
         </h4>
         
         <div className="flex flex-wrap gap-1.5">
-          {POPULAR_DIGITAL_TOOLS.map((tool) => {
+          {Array.from(new Set([...POPULAR_DIGITAL_TOOLS, ...digitalTools])).map((tool) => {
             const isSelected = digitalTools.includes(tool);
+            const isCustom = !POPULAR_DIGITAL_TOOLS.includes(tool);
             return (
               <button
                 key={tool}
                 type="button"
                 onClick={() => toggleTool(tool)}
-                className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${
+                className={`px-2.5 py-1 text-xs rounded-lg border transition-all flex items-center gap-1 ${
                   isSelected
                     ? 'bg-purple-50 text-purple-700 border-purple-300 font-semibold'
                     : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                {tool}
+                <span>{tool}</span>
+                {isCustom && isSelected && (
+                  <span className="text-[10px] px-1 bg-purple-200/70 text-purple-900 rounded">Tự thêm ✕</span>
+                )}
               </button>
             );
           })}

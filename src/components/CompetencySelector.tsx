@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { COMPETENCY_3456_ITEMS } from '../data/competency3456Items';
+import { COMPETENCY_3456_ITEMS, getSuggestedCodesForGrade } from '../data/competency3456Items';
 import { DOMAINS_3456, Competency3456Item } from '../data/competency3456Data';
 import {
   Check,
@@ -79,10 +79,9 @@ export const CompetencySelector: React.FC<CompetencySelectorProps> = ({
   };
 
   const handleAutoSuggest = () => {
-    // 4 standard core indicators: Search (1.1.TC1b), Evaluation (1.2.TC1a), Presentation/Collab (2.2.TC1a), AI understanding (6.1.TC1a)
-    const core = ['1.1.TC1b', '1.2.TC1a', '2.2.TC1a', '6.1.TC1a'];
+    const core = getSuggestedCodesForGrade(gradeLevel);
     const customCodes = customIndicators.map((c) => c.code);
-    onChangeSelectedCodes(Array.from(new Set([...selectedCodes, ...core, ...customCodes])));
+    onChangeSelectedCodes(Array.from(new Set([...core, ...customCodes])));
   };
 
   const handleSaveCustom = (e: React.FormEvent) => {
@@ -174,7 +173,7 @@ export const CompetencySelector: React.FC<CompetencySelectorProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors"
             >
               <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Gợi ý 4 chỉ báo cốt lõi</span>
+              <span>Gợi ý 4 chỉ báo chuẩn ({gradeLevel || 'theo lớp'})</span>
             </button>
 
             <div className="flex items-center border border-slate-200 rounded-lg p-0.5 bg-slate-50">

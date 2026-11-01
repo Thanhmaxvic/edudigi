@@ -10,24 +10,34 @@ import {
   AlignmentType,
   PageNumber,
   Header,
+  Footer,
   ImageRun,
   BorderStyle,
   Math as DocxMath,
   XmlComponent,
 } from "docx";
+import JSZip from "jszip";
 import FileSaver from "file-saver";
 const saveAs = (FileSaver as any).saveAs || FileSaver;
-import { latexToUnicode, convertLatexToDocxMath } from "./mathConverter";
+import {
+  MathOutputFormat,
+  latexToUnicode,
+  convertLatexToDocxMath,
+  autoWrapUnwrappedMathForEquation,
+  normalizeContentForRawLatex,
+  FORBIDDEN_UNICODE_MATH_REGEX,
+} from "./mathConverter";
+import {
+  ExtractedVisual,
+  extractInlineVisuals,
+  rasterizeSvgToPngBytes,
+  base64ToBytes,
+} from "./mathSvgRenderer";
 
 // Constants for Page Setup (A4, standard Vietnamese educational guidelines)
 // 1 cm = 567 twips (dxa)
 const PAGE_WIDTH_DXA = 11906; // A4 210mm
 const PAGE_HEIGHT_DXA = 16838; // A4 297mm
-
-const DEFAULT_MARGIN_left = 1417; // 2.5 cm
-const DEFAULT_MARGIN_right = 850; // 1.5 cm
-const DEFAULT_MARGIN_top = 850; // 1.5 cm
-const DEFAULT_MARGIN_bottom = 850; // 1.5 cm
 
 const DEFAULT_FONT_NAME = "Times New Roman";
 const DEFAULT_BASE_FONT_SIZE = 26; // 13 pt (half-points: 13 * 2 = 26)
@@ -43,10 +53,11 @@ export interface ImageAttachment {
 export interface FormattingOptions {
   fontName: string;
   fontSize: number; // e.g. 26 for 13pt
-  lineSpacing: number; // e.g. 240 for Single
-  paraSpacing: number; // e.g. 120 for 6pt
+  lineSpacing: number; // e.g. 240 for Single, 276 for 1.15, 360 for 1.5
+  paraSpacing: number; // e.g. 120 for 6pt, 0 for 0pt, 240 for 12pt
   margins: { top: number; bottom: number; left: number; right: number }; // dxa
-  pageNumber: 'none' | 'bottom-center' | 'bottom-right';
+  pageNumber: "none" | "bottom-center" | "bottom-right" | "top-center";
+  mathFormat?: MathOutputFormat; // 'equation' (OMML) | 'latex' (Raw LaTeX)
 }
 
 export interface ParseOptions {
@@ -57,24 +68,29 @@ export interface ParseOptions {
   formatting?: FormattingOptions;
 }
 
-/**
- * Converts a base64 data string into a Uint8Array for docx ImageRun
- */
-function base64ToUint8Array(base64: string): Uint8Array {
-  const cleanBase64 = base64.replace(/^data:image\/[a-z0-9\-+]+;base64,/, "");
-  const binaryString = atob(cleanBase64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
+export interface DocxVerificationReport {
+  passed: boolean;
+  mathFormat: MathOutputFormat;
+  xmlValid: boolean;
+  ommlEquationCount: number;
+  rawInlineLatexCount: number;
+  rawDisplayLatexCount: number;
+  leakedRawLatexInEquationMode: number;
+  forbiddenUnicodeInLatexMode: number;
+  embeddedImageCount: number;
+  mediaFileCount: number;
+  tableCount: number;
+  redRunCount: number;
+  pageNumberMode: string;
+  issues: string[];
+  summary: string;
 }
 
 /**
  * Sanitizes line formatting:
  * - Removes '*' or '.' in front of headings
  * - Removes '*' at the end of sentences
- * - Removes any raw <br> tags
+ * - Removes any raw <br> tags (unless preserveBr=true inside table cells)
  */
 export function cleanLineFormatting(line: string, preserveBr = false): string {
   let l = line.trimEnd();
@@ -86,23 +102,25 @@ export function cleanLineFormatting(line: string, preserveBr = false): string {
     l = l.replace(/&lt;br\s*\/?&gt;/gi, "");
     l = l.replace(/<br\s*\/?>/gi, "");
   } else {
-    // Inside table cell: preserve <br> but normalize <br>- or <br>–
     l = l.replace(/&lt;br\s*\/?&gt;\s*[-–]\s*/gi, "<br>– ");
     l = l.replace(/<br\s*\/?>\s*[-–]\s*/gi, "<br>– ");
     l = l.replace(/&lt;br\s*\/?&gt;/gi, "<br>");
   }
 
   // 2. Remove leading '.' or '*' or '*.' before roman numerals, numbers, headings, or activity titles
-  l = l.replace(/^[\s*.]+(?=[I|V|XLCDM]+\b[\.\:\s])/i, "");
+  l = l.replace(/^[\s*.]+(?=[IVXLCDM]+\b[\.\:\s])/i, "");
   l = l.replace(/^[\s*.]+(?=\d+[\.\)\:\s])/i, "");
-  l = l.replace(/^[\s*.]+(?=[a-z]\)[\s])/i, "");
-  l = l.replace(/^[\s*.]+(?=(?:Hoạt động|HOẠT ĐỘNG|MỤC TIÊU|Mục tiêu|TIẾN TRÌNH|Tiến trình|THIẾT BỊ|Thiết bị|HỒ SƠ|Hồ sơ)[\s\:\.])/i, "");
+  l = l.replace(/^[\s*.]+(?=[a-z][\.\)]\s)/i, "");
+  l = l.replace(
+    /^[\s*.]+(?=(?:Hoạt động|HOẠT ĐỘNG|MỤC TIÊU|Mục tiêu|TIẾN TRÌNH|Tiến trình|THIẾT BỊ|Thiết bị|HỒ SƠ|Hồ sơ|PHỤ LỤC|Phụ lục|HƯỚNG DẪN|Hướng dẫn)[\s\:\.])/i,
+    ""
+  );
 
   // 3. Remove markdown asterisks wrapper around headings
   l = l.replace(/^\*\*(.*?)\*\*$/, "$1");
   l = l.replace(/^[\s*.]+\*\*(.*?)\*\*/, "$1");
 
-  // 4. Remove trailing '*' at the end of sentences or lines
+  // 4. Remove trailing '*' at the end of sentences or lines (avoid touching $$...$$)
   l = l.replace(/\*+\s*([.,;:!?])/g, "$1");
   l = l.replace(/([.,;:!?])\*+\s*$/g, "$1");
   l = l.replace(/\*+\s*$/g, "");
@@ -114,10 +132,10 @@ export function cleanLineFormatting(line: string, preserveBr = false): string {
   l = l.replace(/\[\[RED:(.*?)\*+\]\]/gi, "[[RED:$1]]");
 
   // 6. Fix arbitrary Title Case capitalization on common headings, steps, and pedagogical terms
-  l = l.replace(/\bMục\s+Tiêu\b/gi, "Mục tiêu");
-  l = l.replace(/\bNội\s+Dung\b/gi, "Nội dung");
-  l = l.replace(/\bSản\s+Phẩm\b/gi, "Sản phẩm");
-  l = l.replace(/\bTổ\s+Chức\s+Thực\s+Hiện\b/gi, "Tổ chức thực hiện");
+  l = l.replace(/\bMục\s+Tiêu\b/g, "Mục tiêu");
+  l = l.replace(/\bNội\s+Dung\b/g, "Nội dung");
+  l = l.replace(/\bSản\s+Phẩm\b/g, "Sản phẩm");
+  l = l.replace(/\bTổ\s+Chức\s+Thực\s+Hiện\b/g, "Tổ chức thực hiện");
   l = l.replace(/\bVề\s+Kiến\s+Thức\b/gi, "Về kiến thức");
   l = l.replace(/\bVề\s+Năng\s+Lực\b/gi, "Về năng lực");
   l = l.replace(/\bVề\s+Phẩm\s+Chất\b/gi, "Về phẩm chất");
@@ -127,54 +145,33 @@ export function cleanLineFormatting(line: string, preserveBr = false): string {
   l = l.replace(/\bThực\s+Hiện\s+Nhiệm\s+Vụ\b/gi, "Thực hiện nhiệm vụ");
   l = l.replace(/\bBáo\s+Cáo\s+Kết\s+Quả\b/gi, "Báo cáo kết quả");
   l = l.replace(/\bĐánh\s+Giá\s+Kết\s+Quả\b/gi, "Đánh giá kết quả");
-  l = l.replace(/\bSản\s+Phẩm\s+Dự\s+Kiến\b/gi, "Sản phẩm dự kiến");
-  l = l.replace(/\bHoạt\s+Động\s+Của\s+GV\s+Và\s+HS\b/gi, "Hoạt động của GV và HS");
-  l = l.replace(/\bTrình\s+Tự\s+Đọc\b/gi, "Trình tự đọc");
-  l = l.replace(/\bNội\s+Dung\s+Cần\s+Hiểu\b/gi, "Nội dung cần hiểu");
-  l = l.replace(/\bBảng\s+Đáp\s+Án\s+Trắc\s+Nhiệm\b/gi, "Bảng đáp án trắc nghiệm");
-  l = l.replace(/\bHệ\s+Thống\s+Câu\s+Hỏi\s+Trắc\s+Nhiệm\b/gi, "Hệ thống câu hỏi trắc nghiệm");
-  l = l.replace(/\bPhiếu\s+Học\s+Tập\b/gi, "Phiếu học tập");
-  l = l.replace(/\bHoạt\s+Động\s+Khởi\s+Động\b/gi, "Hoạt động khởi động");
-  l = l.replace(/\bHình\s+Thành\s+Kiến\s+Thức\s+Mới\b/gi, "Hình thành kiến thức mới");
-  l = l.replace(/\bHoạt\s+Động\s+Luyện\s+Tập\b/gi, "Hoạt động luyện tập");
-  l = l.replace(/\bHoạt\s+Động\s+Vận\s+Dụng\b/gi, "Hoạt động vận dụng");
-  l = l.replace(/\bKhung\s+Tên\b/g, "Khung tên");
-  l = l.replace(/\bBảng\s+Kê\b/g, "Bảng kê");
-  l = l.replace(/\bHình\s+Biểu\s+Diễn\b/g, "Hình biểu diễn");
-  l = l.replace(/\bKích\s+Thước\b/g, "Kích thước");
-  l = l.replace(/\bTổng\s+Hợp\b/g, "Tổng hợp");
-  l = l.replace(/\bYêu\s+Cầu\s+Cần\s+Đạt\b/gi, "Yêu cầu cần đạt");
-  l = l.replace(/\bThiết\s+Bị\s+Dạy\s+Học\b/gi, "Thiết bị dạy học");
-  l = l.replace(/\bHọc\s+Liệu\s+Số\b/gi, "Học liệu số");
+  l = l.replace(/\bSản\s+Phẩm\s+Dự\s+Kiến\b/g, "Sản phẩm dự kiến");
+  l = l.replace(/\bHoạt\s+Động\s+Của\s+GV\s+Và\s+HS\b/g, "Hoạt động của GV và HS");
+  l = l.replace(/\bPhiếu\s+Học\s+Tập\b/g, "Phiếu học tập");
+  l = l.replace(/\bHoạt\s+Động\s+Khởi\s+Động\b/g, "Hoạt động khởi động");
+  l = l.replace(/\bHình\s+Thành\s+Kiến\s+Thức\s+Mới\b/g, "Hình thành kiến thức mới");
+  l = l.replace(/\bHoạt\s+Động\s+Luyện\s+Tập\b/g, "Hoạt động luyện tập");
+  l = l.replace(/\bHoạt\s+Động\s+Vận\s+Dụng\b/g, "Hoạt động vận dụng");
+  l = l.replace(/\bYêu\s+Cầu\s+Cần\s+Đạt\b/g, "Yêu cầu cần đạt");
+  l = l.replace(/\bThiết\s+Bị\s+Dạy\s+Học\b/g, "Thiết bị dạy học");
+  l = l.replace(/\bHọc\s+Liệu\s+Số\b/g, "Học liệu số");
   l = l.replace(/\bNăng\s+Lực\s+Số\b/g, "Năng lực số");
-  l = l.replace(/\bNăng\s+Lực\s+Chung\b/gi, "Năng lực chung");
-  l = l.replace(/\bNăng\s+Lực\s+Công\s+Nghệ\b/gi, "Năng lực công nghệ");
-  l = l.replace(/\bNăng\s+Lực\s+Đặc\s+Thù\b/gi, "Năng lực đặc thù");
-  l = l.replace(/\bTự\s+Chủ\s+Và\s+Tự\s+Học\b/gi, "Tự chủ và tự học");
-  l = l.replace(/\bGiao\s+Tiếp\s+Và\s+Hợp\s+Tác\b/gi, "Giao tiếp và hợp tác");
-  l = l.replace(/\bGiải\s+Quyết\s+Vấn\s+Đề\s+Và\s+Sáng\s+Tạo\b/gi, "Giải quyết vấn đề và sáng tạo");
-  l = l.replace(/\bHướng\s+Dẫn\s+Tự\s+Học\b/gi, "Hướng dẫn tự học");
-  l = l.replace(/\bBản\s+Vẽ\s+Chi\s+Tiết\b/g, "Bản vẽ chi tiết");
-  l = l.replace(/\bBản\s+Vẽ\s+Lắp\b/g, "Bản vẽ lắp");
-  l = l.replace(/\bBản\s+Vẽ\s+Kĩ\s+Thuật\b/g, "Bản vẽ kĩ thuật");
-  l = l.replace(/\bBản\s+Vẽ\s+Nhà\b/g, "Bản vẽ nhà");
+  l = l.replace(/\bNăng\s+Lực\s+Chung\b/g, "Năng lực chung");
+  l = l.replace(/\bNăng\s+Lực\s+Đặc\s+Thù\b/g, "Năng lực đặc thù");
 
   return l;
 }
 
 /**
  * Normalizes [[RED:...]] tags so they don't get broken across multiple lines or <br> breaks.
- * If [[RED:...]] encloses multiple lines, each line is individually wrapped in [[RED:...]].
  */
 export function normalizeRedTags(content: string): string {
   if (!content) return "";
 
-  // Normalize case-insensitivity and spacing for RED tags
-  let text = content.replace(/\[\[\s*red\s*:/gi, "[[RED:");
+  const text = content.replace(/\[\[\s*red\s*:/gi, "[[RED:");
 
-  // 1. Wrap each line within multi-line [[RED:...]] blocks individually
-  let normalized = text.replace(/\[\[RED:([\s\S]*?)\]\]/gi, (_, inner) => {
-    const lines = inner.split('\n');
+  const normalized = text.replace(/\[\[RED:([\s\S]*?)\]\]/gi, (_, inner) => {
+    const lines = inner.split("\n");
     return lines
       .map((line: string) => {
         if (!line.trim()) return line;
@@ -186,17 +183,16 @@ export function normalizeRedTags(content: string): string {
               const cleanSeg = seg.replace(/\[\[\s*RED:?/gi, "").replace(/\]\]/g, "").trim();
               return cleanSeg ? `[[RED:${cleanSeg}]]` : "";
             })
-            .join('');
+            .join("");
         }
         const cleanLine = line.replace(/\[\[\s*RED:?/gi, "").replace(/\]\]/g, "").trim();
         return cleanLine ? `[[RED:${cleanLine}]]` : "";
       })
-      .join('\n');
+      .join("\n");
   });
 
-  // 2. Auto-close any unclosed [[RED:... line by line
-  const lines = normalized.split('\n');
-  const fixedLines = lines.map(line => {
+  const lines = normalized.split("\n");
+  const fixedLines = lines.map((line) => {
     let l = line;
     const opens = (l.match(/\[\[RED:/g) || []).length;
     const closes = (l.match(/\]\]/g) || []).length;
@@ -206,57 +202,66 @@ export function normalizeRedTags(content: string): string {
     return l;
   });
 
-  return fixedLines.join('\n');
+  return fixedLines.join("\n");
 }
 
 /**
- * Preprocesses markdown text:
- * 1. Normalizes multi-line [[RED:...]] tags.
- * 2. Converts <br> tags outside of tables into actual newlines (\n) and cleans any <br>- artifacts.
+ * Preprocesses markdown text (after inline SVGs have been tokenized):
+ * 1. Collapses multi-line math blocks ($$...$$, \[...\], \begin{cases}...\end{cases}) into single lines BEFORE RED tag splitting so formulas inside [[RED:...]] never tear!
+ * 2. Normalizes multi-line [[RED:...]] tags.
+ * 3. Converts <br> tags outside of tables into actual newlines (\n).
  */
-export function preprocessLessonPlanContent(content: string): string {
+export function preprocessLessonPlanContent(
+  content: string,
+  mathFormat: MathOutputFormat = "equation"
+): string {
   if (!content) return "";
 
-  const withNormalizedRed = normalizeRedTags(content);
-
-  // Collapse multi-line math blocks ($$...$$, \[...\], \begin{cases}...\end{cases}) into single lines
-  // so that line-by-line processing does not break formulas across paragraphs.
-  const withCollapsedMath = withNormalizedRed
+  const withCollapsedMath = content
     .replace(/\$\$([\s\S]+?)\$\$/g, (_, inner) => {
       const singleLine = inner.replace(/\r?\n/g, " ").trim();
       return `$$${singleLine}$$`;
     })
     .replace(/\\\[([\s\S]+?)\\\]/g, (_, inner) => {
       const singleLine = inner.replace(/\r?\n/g, " ").trim();
-      return `\\[${singleLine}\\]`;
+      return mathFormat === "latex" ? `$$${singleLine}$$` : `\\[${singleLine}\\]`;
     })
     .replace(/\\begin\{cases\}([\s\S]+?)\\end\{cases\}/g, (_, inner) => {
       const singleLine = inner.replace(/\r?\n/g, " ").trim();
       return `\\begin{cases}${singleLine}\\end{cases}`;
     });
 
-  const lines = withCollapsedMath.split("\n");
+  const withNormalizedMode =
+    mathFormat === "latex" ? normalizeContentForRawLatex(withCollapsedMath) : withCollapsedMath;
+
+  const withNormalizedRed = normalizeRedTags(withNormalizedMode);
+
+  const lines = withNormalizedRed.split("\n");
   const processedLines: string[] = [];
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
-      // Inside table row: keep <br> for cell splitting, normalize <br>- to <br>–
       const cleanTableRow = line
         .replace(/&lt;br\s*\/?&gt;\s*[-–]\s*/gi, "<br>– ")
         .replace(/<br\s*\/?>\s*[-–]\s*/gi, "<br>– ")
         .replace(/&lt;br\s*\/?&gt;/gi, "<br>");
       processedLines.push(cleanTableRow);
     } else {
-      // Outside table row: replace <br>- and <br> with actual newlines \n
       const cleaned = line
         .replace(/&lt;br\s*\/?&gt;\s*[-–]\s*/gi, "\n– ")
         .replace(/<br\s*\/?>\s*[-–]\s*/gi, "\n– ")
         .replace(/&lt;br\s*\/?&gt;/gi, "\n")
         .replace(/<br\s*\/?>/gi, "\n");
 
-      if (cleaned.includes("\n")) {
-        const parts = cleaned.split("\n");
+      // In 'latex' mode, ensure any inline $$...$$ embedded inside a regular paragraph is split onto its own centered line
+      const splitDisplayMath =
+        mathFormat === "latex" && /\$\$[\s\S]+?\$\$/.test(cleaned) && !/^\$\$[\s\S]+\$\$$/.test(cleaned.trim())
+          ? cleaned.replace(/(\$\$[^$\n]+?\$\$)/g, "\n$1\n")
+          : cleaned;
+
+      if (splitDisplayMath.includes("\n")) {
+        const parts = splitDisplayMath.split("\n");
         for (const part of parts) {
           const pTrimmed = part.trim();
           if (pTrimmed) {
@@ -273,50 +278,88 @@ export function preprocessLessonPlanContent(content: string): string {
 }
 
 /**
- * Finds an image attachment by index (e.g. 1, 2) or by id/name
+ * Finds an uploaded textbook/plan image attachment by index (e.g. 1, 2) or by id/name
  */
 function findImage(idOrIndex: string, images?: ImageAttachment[]): ImageAttachment | null {
   if (!images || images.length === 0) return null;
   const cleanKey = idOrIndex.trim().toLowerCase();
 
-  // 1. Direct match by id
-  const byId = images.find(img => img.id.toLowerCase() === cleanKey);
+  const byId = images.find((img) => img.id && img.id.toLowerCase() === cleanKey);
   if (byId) return byId;
 
-  // 2. Numeric index match (e.g. 1 -> images[0])
   const num = parseInt(cleanKey, 10);
   if (!isNaN(num) && num > 0 && num <= images.length) {
     return images[num - 1];
   }
 
-  // 3. Name match
-  return images.find(img => img.name && (img.name.toLowerCase() === cleanKey || img.name.toLowerCase().includes(cleanKey))) || null;
+  return (
+    images.find(
+      (img) =>
+        img.name &&
+        (img.name.toLowerCase() === cleanKey || img.name.toLowerCase().includes(cleanKey))
+    ) || null
+  );
 }
 
 /**
- * Parses markdown-like text with [[RED:...]] tags and math expressions into Word Runs (TextRun | Math).
- * Requirements:
- * - Red content is ONLY RED, NEVER BOLD (bold: false).
- * - Never leaves raw "[[RED:" or "]]" or "<br>-" in text.
- * - Converts math expressions ($...$, $$...$$, \(...\), \[...\]) into native Word Math or clean Unicode.
+ * Splits a Markdown table row `| cell1 | cell2 |` safely without splitting `|` inside `$...$` math (e.g. `|x|`)
  */
-function parseInlineRuns(text: string, defaultBold = false, fontName = DEFAULT_FONT_NAME, fontSize = DEFAULT_BASE_FONT_SIZE): (TextRun | DocxMath | XmlComponent)[] {
+export function splitMarkdownTableRow(rowLine: string): string[] {
+  const inner = rowLine.trim().slice(1, -1);
+  const cells: string[] = [];
+  let cur = "";
+  let inMath = false;
+
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === "$" && inner[i - 1] !== "\\") {
+      // Handle $$ or $
+      if (inner[i + 1] === "$") {
+        inMath = !inMath;
+        cur += "$$";
+        i++;
+        continue;
+      }
+      inMath = !inMath;
+      cur += ch;
+      continue;
+    }
+    if (ch === "|" && !inMath) {
+      cells.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  cells.push(cur);
+  return cells;
+}
+
+/**
+ * Parses text with [[RED:...]] tags and math expressions into Word Runs.
+ * - In 'equation' mode: converts 100% of math into native Word OMML (<m:oMath>) objects.
+ * - In 'latex' mode: outputs ZERO OMML objects; keeps $...$ and $$...$$ as single unbroken plain TextRuns in the document font.
+ * - Red content is ONLY RED (#DC2626), NEVER BOLD (bold: false).
+ */
+function parseInlineRuns(
+  text: string,
+  defaultBold = false,
+  fontName = DEFAULT_FONT_NAME,
+  fontSize = DEFAULT_BASE_FONT_SIZE,
+  mathFormat: MathOutputFormat = "equation"
+): (TextRun | DocxMath | XmlComponent)[] {
   const runs: (TextRun | DocxMath | XmlComponent)[] = [];
 
-  // Clean up rogue [..] or [i] annotations and any leftover HTML breaks
   let sanitized = text
     .replace(/&lt;br\s*\/?&gt;\s*[-–]?\s*/gi, " ")
     .replace(/<br\s*\/?>\s*[-–]?\s*/gi, " ")
     .replace(/&lt;br\s*\/?&gt;/gi, "")
     .replace(/<br\s*\/?>/gi, "")
     .replace(/\[\.\.\.\]/g, "")
-    .replace(/\[i\]/gi, "")
-    .replace(/\[\d+\]/g, "");
+    .replace(/\[i\]/gi, "");
 
-  // Normalize case-insensitivity and spacing for [[RED:
   sanitized = sanitized.replace(/\[\[\s*red\s*:/gi, "[[RED:");
 
-  // If there are unclosed [[RED: in this line, ensure they get closed
   const opens = (sanitized.match(/\[\[RED:/g) || []).length;
   const closes = (sanitized.match(/\]\]/g) || []).length;
   if (opens > closes) {
@@ -331,12 +374,16 @@ function parseInlineRuns(text: string, defaultBold = false, fontName = DEFAULT_F
     const precedingText = sanitized.substring(lastIndex, match.index);
     if (precedingText) {
       const cleanPre = precedingText.replace(/\[\[\s*RED:?/gi, "").replace(/\]\]/g, "");
-      if (cleanPre) appendFormattedRuns(runs, cleanPre, false, defaultBold, fontName, fontSize);
+      if (cleanPre) {
+        appendFormattedRuns(runs, cleanPre, false, defaultBold, fontName, fontSize, mathFormat);
+      }
     }
     const redContent = match[1];
     if (redContent) {
       const cleanRed = redContent.replace(/\[\[\s*RED:?/gi, "").replace(/\]\]/g, "");
-      if (cleanRed) appendFormattedRuns(runs, cleanRed, true, false, fontName, fontSize);
+      if (cleanRed) {
+        appendFormattedRuns(runs, cleanRed, true, false, fontName, fontSize, mathFormat);
+      }
     }
     lastIndex = regex.lastIndex;
   }
@@ -344,27 +391,34 @@ function parseInlineRuns(text: string, defaultBold = false, fontName = DEFAULT_F
   const remaining = sanitized.substring(lastIndex);
   if (remaining) {
     const cleanRem = remaining.replace(/\[\[\s*RED:?/gi, "").replace(/\]\]/g, "");
-    if (cleanRem) appendFormattedRuns(runs, cleanRem, false, defaultBold, fontName, fontSize);
+    if (cleanRem) {
+      appendFormattedRuns(runs, cleanRem, false, defaultBold, fontName, fontSize, mathFormat);
+    }
   }
 
-  return runs.length > 0
-    ? runs
-    : [
-        new TextRun({
-          text: latexToUnicode(sanitized.replace(/\[\[\s*RED:?/gi, "").replace(/\]\]/g, "")),
-          font: fontName,
-          size: fontSize,
-          bold: defaultBold,
-        }),
-      ];
+  if (runs.length > 0) return runs;
+
+  const fallbackText = sanitized.replace(/\[\[\s*RED:?/gi, "").replace(/\]\]/g, "");
+  return [
+    new TextRun({
+      text: mathFormat === "latex" ? fallbackText : latexToUnicode(fallbackText),
+      font: fontName,
+      size: fontSize,
+      bold: defaultBold,
+    }),
+  ];
 }
 
-/**
- * Helper to parse bold markdown **text** and math expressions inside regular or red segments.
- * When isRed is true, bold is strictly false as requested by the user.
- */
-function appendFormattedRuns(runs: (TextRun | DocxMath | XmlComponent)[], textSegment: string, isRed: boolean, isDefaultBold: boolean, fontName: string, fontSize: number) {
-  const cleanSegment = textSegment
+function appendFormattedRuns(
+  runs: (TextRun | DocxMath | XmlComponent)[],
+  textSegment: string,
+  isRed: boolean,
+  isDefaultBold: boolean,
+  fontName: string,
+  fontSize: number,
+  mathFormat: MathOutputFormat
+) {
+  let cleanSegment = textSegment
     .replace(/\[\[\s*RED:?/gi, "")
     .replace(/\]\]/g, "")
     .replace(/&lt;br\s*\/?&gt;\s*[-–]?\s*/gi, " ")
@@ -374,73 +428,122 @@ function appendFormattedRuns(runs: (TextRun | DocxMath | XmlComponent)[], textSe
 
   if (!cleanSegment) return;
 
-  // Math regex: $$...$$, \[...\], $...$, \(...\), \begin{cases}...\end{cases}
-  const mathRegex = /(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$]+?)\$|\\\(([\s\S]+?)\\\)|(\\begin\{cases\}[\s\S]+?\\end\{cases\}))/g;
-  let lastIdx = 0;
-  let match: RegExpExecArray | null;
+  // In 'equation' mode, safeguard against any unwrapped math outside $...$
+  if (mathFormat === "equation") {
+    const tokenRegex =
+      /(?:\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^$]+?\$|\\\([\s\S]+?\\\)|\\begin\{cases\}[\s\S]+?\\end\{cases\})/g;
+    let rebuilt = "";
+    let ptr = 0;
+    let tm: RegExpExecArray | null;
+    while ((tm = tokenRegex.exec(cleanSegment)) !== null) {
+      if (tm.index > ptr) {
+        rebuilt += autoWrapUnwrappedMathForEquation(cleanSegment.slice(ptr, tm.index));
+      }
+      rebuilt += tm[0];
+      ptr = tokenRegex.lastIndex;
+    }
+    if (ptr < cleanSegment.length) {
+      rebuilt += autoWrapUnwrappedMathForEquation(cleanSegment.slice(ptr));
+    }
+    cleanSegment = rebuilt;
+  }
 
-  const pushTextSegment = (rawTxt: string) => {
+  const pushPlainTextWithBold = (rawTxt: string) => {
     if (!rawTxt) return;
     const boldRegex = /\*\*(.*?)\*\*/g;
     let bLast = 0;
     let bMatch: RegExpExecArray | null;
 
+    const formatStr = (s: string) => (mathFormat === "latex" ? s : latexToUnicode(s));
+
     while ((bMatch = boldRegex.exec(rawTxt)) !== null) {
       const normalText = rawTxt.substring(bLast, bMatch.index);
       if (normalText) {
-        runs.push(new TextRun({
-          text: latexToUnicode(normalText),
-          font: fontName,
-          size: fontSize,
-          bold: isRed ? false : isDefaultBold,
-          color: isRed ? RED_COLOR : "000000",
-        }));
+        runs.push(
+          new TextRun({
+            text: formatStr(normalText),
+            font: fontName,
+            size: fontSize,
+            bold: isRed ? false : isDefaultBold,
+            color: isRed ? RED_COLOR : "000000",
+          })
+        );
       }
       const boldText = bMatch[1];
       if (boldText) {
-        runs.push(new TextRun({
-          text: latexToUnicode(boldText),
-          font: fontName,
-          size: fontSize,
-          bold: isRed ? false : true,
-          color: isRed ? RED_COLOR : "000000",
-        }));
+        runs.push(
+          new TextRun({
+            text: formatStr(boldText),
+            font: fontName,
+            size: fontSize,
+            bold: isRed ? false : true,
+            color: isRed ? RED_COLOR : "000000",
+          })
+        );
       }
       bLast = boldRegex.lastIndex;
     }
 
     const remainder = rawTxt.substring(bLast);
     if (remainder) {
-      runs.push(new TextRun({
-        text: latexToUnicode(remainder),
-        font: fontName,
-        size: fontSize,
-        bold: isRed ? false : isDefaultBold,
-        color: isRed ? RED_COLOR : "000000",
-      }));
-    }
-  };
-
-  while ((match = mathRegex.exec(cleanSegment)) !== null) {
-    const textBefore = cleanSegment.substring(lastIdx, match.index);
-    if (textBefore) {
-      pushTextSegment(textBefore);
-    }
-
-    const formula = match[1] || match[2] || match[3] || match[4] || match[5];
-    if (formula) {
-      try {
-        const docxMath = convertLatexToDocxMath(formula, isRed);
-        runs.push(docxMath);
-      } catch {
-        runs.push(new TextRun({
-          text: latexToUnicode(formula),
+      runs.push(
+        new TextRun({
+          text: formatStr(remainder),
           font: fontName,
           size: fontSize,
           bold: isRed ? false : isDefaultBold,
           color: isRed ? RED_COLOR : "000000",
-        }));
+        })
+      );
+    }
+  };
+
+  if (mathFormat === "latex") {
+    // RAW LATEX MODE: keep $$...$$ and $...$ verbatim in single unbroken TextRun with exact document font
+    const rawLatexRegex = /(\$\$[^$\n]+?\$\$|\$[^$\n]+?\$)/g;
+    let lastIdx = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = rawLatexRegex.exec(cleanSegment)) !== null) {
+      const textBefore = cleanSegment.substring(lastIdx, match.index);
+      if (textBefore) {
+        pushPlainTextWithBold(textBefore);
       }
+      const verbatimMath = match[1];
+      runs.push(
+        new TextRun({
+          text: verbatimMath,
+          font: fontName,
+          size: fontSize,
+          bold: isRed ? false : isDefaultBold,
+          color: isRed ? RED_COLOR : "000000",
+        })
+      );
+      lastIdx = rawLatexRegex.lastIndex;
+    }
+
+    const textAfter = cleanSegment.substring(lastIdx);
+    if (textAfter) {
+      pushPlainTextWithBold(textAfter);
+    }
+    return;
+  }
+
+  // EQUATION (OMML) MODE: convert 100% of math tokens into native Word OMML <m:oMath>
+  const mathRegex =
+    /(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$]+?)\$|\\\(([\s\S]+?)\\\)|(\\begin\{cases\}[\s\S]+?\\end\{cases\}))/g;
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = mathRegex.exec(cleanSegment)) !== null) {
+    const textBefore = cleanSegment.substring(lastIdx, match.index);
+    if (textBefore) {
+      pushPlainTextWithBold(textBefore);
+    }
+
+    const formula = match[1] || match[2] || match[3] || match[4] || match[5];
+    if (formula) {
+      runs.push(convertLatexToDocxMath(formula, isRed));
     }
 
     lastIdx = mathRegex.lastIndex;
@@ -448,47 +551,216 @@ function appendFormattedRuns(runs: (TextRun | DocxMath | XmlComponent)[], textSe
 
   const textAfter = cleanSegment.substring(lastIdx);
   if (textAfter) {
-    pushTextSegment(textAfter);
+    pushPlainTextWithBold(textAfter);
   }
 }
 
 /**
- * Converts the generated lesson plan text into a structured Word (.docx) document
- * satisfying all formatting constraints:
- * - Preserves structure, layout, alignments, headings, line spacing of original lesson plan
- * - Preserves multi-column tables (e.g. 2 columns: Hoạt động GV-HS | Sản phẩm dự kiến)
- * - Embeds textbook images at the exact positions specified by [[IMAGE:...]]
- * - Digital competency additions are RED ONLY, NOT BOLD, NO INDICATOR CODES
- * - Header has ONLY centered page number (e.g. 1), NO 'Trang 1/1'
+ * Inspects and verifies the actual XML structure inside the generated .docx archive
+ * before delivering it to the user, ensuring truthful 100% Equation or Raw LaTeX compliance.
  */
-export async function exportLessonPlanToDocx(rawContent: string, options: ParseOptions) {
-  const fontName = options.formatting?.fontName || "Times New Roman";
-  const fontSize = options.formatting?.fontSize || 26; // 13pt
-  const TITLE_FONT_SIZE = fontSize + 4; // e.g. 30 for 15pt
-  const LINE_SPACING = options.formatting?.lineSpacing || 240;
-  const PARA_SPACING = options.formatting?.paraSpacing !== undefined ? options.formatting.paraSpacing : 120;
-  const MARGINS = options.formatting?.margins || { top: 850, bottom: 850, left: 1417, right: 850 };
-  const PAGE_NUMBER = options.formatting?.pageNumber || 'bottom-center';
+export async function verifyGeneratedDocxXml(
+  docxBytesOrBlob: Uint8Array | Blob | ArrayBuffer,
+  mathFormat: MathOutputFormat
+): Promise<DocxVerificationReport> {
+  const issues: string[] = [];
+  const zip = await JSZip.loadAsync(docxBytesOrBlob as any);
+  const docXml = (await zip.file("word/document.xml")?.async("string")) || "";
 
-  const preprocessed = preprocessLessonPlanContent(rawContent);
+  const xmlValid =
+    docXml.includes("<w:document") &&
+    docXml.includes("<w:body>") &&
+    docXml.includes("</w:body>") &&
+    docXml.includes("</w:document>");
+
+  if (!xmlValid) {
+    issues.push("Cấu trúc word/document.xml thiếu thẻ đóng/mở chuẩn OpenXML.");
+  }
+
+  const ommlEquationCount = (docXml.match(/<m:oMath\b/g) || []).length;
+  const tableCount = (docXml.match(/<w:tbl\b/g) || []).length;
+  const embeddedImageCount = (docXml.match(/<a:blip\b/g) || []).length;
+  const mediaFileCount = Object.keys(zip.files).filter((f) => f.startsWith("word/media/")).length;
+  const redRunCount = (docXml.match(/w:val="DC2626"/gi) || []).length;
+
+  const hasHeader = Object.keys(zip.files).some((f) => /^word\/header\d*\.xml$/i.test(f));
+  const hasFooter = Object.keys(zip.files).some((f) => /^word\/footer\d*\.xml$/i.test(f));
+  const pageNumberMode = hasFooter ? "footer" : hasHeader ? "header" : "none";
+
+  // Strip <m:oMath>...</m:oMath> blocks to inspect pure <w:t> plain text runs
+  const xmlWithoutOmml = docXml.replace(/<m:oMath\b[\s\S]*?<\/m:oMath>/g, "");
+  const plainTextRuns = (xmlWithoutOmml.match(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g) || []).map((t) =>
+    t
+      .replace(/<[^>]+>/g, "")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+  );
+  const combinedPlainText = plainTextRuns.join(" ");
+
+  const rawDisplayMatches = combinedPlainText.match(/\$\$[^$]+\$\$/g) || [];
+  const textWithoutDisplay = combinedPlainText.replace(/\$\$[^$]+\$\$/g, " ");
+  const rawInlineMatches = textWithoutDisplay.match(/\$[^$]+\$/g) || [];
+
+  let leakedRawLatexInEquationMode = 0;
+  let forbiddenUnicodeInLatexMode = 0;
+
+  if (mathFormat === "equation") {
+    const leakedCmds =
+      combinedPlainText.match(
+        /\\(?:frac|dfrac|sqrt|begin\{cases\}|end\{cases\}|le\b|ge\b|neq\b|mathbb|overrightarrow|widehat)/g
+      ) || [];
+    leakedRawLatexInEquationMode =
+      leakedCmds.length + rawDisplayMatches.length + rawInlineMatches.length;
+    if (leakedRawLatexInEquationMode > 0) {
+      issues.push(
+        `Phát hiện ${leakedRawLatexInEquationMode} biểu thức LaTeX thô chưa chuyển sang đối tượng OMML.`
+      );
+    }
+  } else {
+    // mathFormat === 'latex'
+    if (ommlEquationCount > 0) {
+      issues.push(
+        `Chế độ LaTeX thô yêu cầu 0 OMML nhưng phát hiện ${ommlEquationCount} thẻ <m:oMath>.`
+      );
+    }
+    const globalForbidden = new RegExp(FORBIDDEN_UNICODE_MATH_REGEX.source, "g");
+    const unicodeMatches = combinedPlainText.match(globalForbidden) || [];
+    forbiddenUnicodeInLatexMode = unicodeMatches.length;
+    if (forbiddenUnicodeInLatexMode > 0) {
+      issues.push(
+        `Phát hiện ${forbiddenUnicodeInLatexMode} ký tự Unicode toán học (${Array.from(
+          new Set(unicodeMatches)
+        )
+          .slice(0, 5)
+          .join(", ")}) trong chế độ mã LaTeX thô.`
+      );
+    }
+  }
+
+  const passed = xmlValid && issues.length === 0;
+  const summary =
+    mathFormat === "equation"
+      ? `Đã kiểm tra XML DOCX (Chế độ Equation OMML): ${ommlEquationCount} đối tượng Equation <m:oMath> chỉnh sửa được trong Word, ${leakedRawLatexInEquationMode} lỗi rò rỉ LaTeX, ${embeddedImageCount} hình vẽ minh họa, ${tableCount} bảng biểu.`
+      : `Đã kiểm tra XML DOCX (Chế độ LaTeX thô): ${
+          rawInlineMatches.length + rawDisplayMatches.length
+        } công thức LaTeX thô ($...$: ${rawInlineMatches.length}, $$...$$: ${
+          rawDisplayMatches.length
+        }), 0 OMML, ${forbiddenUnicodeInLatexMode} ký tự Unicode toán, ${embeddedImageCount} hình vẽ minh họa, ${tableCount} bảng biểu.`;
+
+  return {
+    passed,
+    mathFormat,
+    xmlValid,
+    ommlEquationCount,
+    rawInlineLatexCount: rawInlineMatches.length,
+    rawDisplayLatexCount: rawDisplayMatches.length,
+    leakedRawLatexInEquationMode,
+    forbiddenUnicodeInLatexMode,
+    embeddedImageCount,
+    mediaFileCount,
+    tableCount,
+    redRunCount,
+    pageNumberMode,
+    issues,
+    summary,
+  };
+}
+
+/**
+ * Core builder that produces the Word (.docx) binary + verified XML audit report
+ * honoring 100% of user-selected FormattingOptions and mathFormat ('equation' | 'latex').
+ */
+export async function buildLessonPlanDocxBlob(
+  rawContent: string,
+  options: ParseOptions
+): Promise<{
+  blob: Blob;
+  uint8Array: Uint8Array;
+  verification: DocxVerificationReport;
+  filename: string;
+}> {
+  const fontName = options.formatting?.fontName || DEFAULT_FONT_NAME;
+  const fontSize = options.formatting?.fontSize || DEFAULT_BASE_FONT_SIZE; // 26 = 13pt
+  const TITLE_FONT_SIZE = fontSize + 4; // e.g. 30 = 15pt
+  const CAPTION_FONT_SIZE = Math.max(20, fontSize - 4); // e.g. 22 = 11pt
+  const LINE_SPACING = options.formatting?.lineSpacing || 240;
+  const PARA_SPACING =
+    options.formatting?.paraSpacing !== undefined ? options.formatting.paraSpacing : 120;
+  const CELL_PARA_SPACING = Math.max(40, Math.round(PARA_SPACING * 0.5));
+  const MARGINS = options.formatting?.margins || {
+    top: 850,
+    bottom: 850,
+    left: 1417,
+    right: 850,
+  };
+  const PAGE_NUMBER = options.formatting?.pageNumber || "bottom-center";
+  const MATH_FORMAT: MathOutputFormat = options.formatting?.mathFormat || "equation";
+
+  // 1. Extract inline mathematical <svg>...</svg> drawings and data-URI images BEFORE line/table splitting,
+  // normalizing every SVG to strict 1pt (#000000 black) stroke on white background
+  const { contentWithTokens, visuals } = extractInlineVisuals(rawContent);
+
+  // Pre-rasterize SVG fallbacks asynchronously
+  const rasterizedFallbacks = new Map<string, Uint8Array>();
+  for (const [id, vis] of visuals.entries()) {
+    if (vis.kind === "svg" && vis.svg) {
+      const pngBytes = await rasterizeSvgToPngBytes(vis.svg, vis.width, vis.height, 3);
+      rasterizedFallbacks.set(id, pngBytes);
+    }
+  }
+
+  // Helper to construct an ImageRun for an ExtractedVisual (gen_svg_x)
+  const buildGeneratedVisualRun = (vis: ExtractedVisual, maxWidthPx: number): ImageRun => {
+    const scale = vis.width > maxWidthPx ? maxWidthPx / vis.width : 1;
+    const w = Math.round(vis.width * scale);
+    const h = Math.round(vis.height * scale);
+
+    if (vis.kind === "svg" && vis.svg) {
+      const svgBytes =
+        typeof Buffer !== "undefined"
+          ? new Uint8Array(Buffer.from(vis.svg, "utf-8"))
+          : new TextEncoder().encode(vis.svg);
+      const fallbackPng = rasterizedFallbacks.get(vis.id) || base64ToBytes(vis.base64Data);
+      return new ImageRun({
+        type: "svg",
+        data: svgBytes,
+        fallback: {
+          type: "png",
+          data: fallbackPng,
+        },
+        transformation: { width: w, height: h },
+      });
+    }
+
+    const imgBytes = base64ToBytes(vis.base64Data);
+    return new ImageRun({
+      type: vis.mimeType.includes("png") ? "png" : "jpg",
+      data: imgBytes,
+      transformation: { width: w, height: h },
+    });
+  };
+
+  // 2. Preprocess markdown, collapse multi-line math, apply mode normalizer, normalize [[RED:...]]
+  const preprocessed = preprocessLessonPlanContent(contentWithTokens, MATH_FORMAT);
   const lines = preprocessed.split("\n");
   const paragraphs: (Paragraph | Table)[] = [];
 
   // Check if content already contains school banner
-  const first500 = preprocessed.slice(0, 500).toUpperCase();
+  const first600 = preprocessed.slice(0, 600).toUpperCase();
   const hasExistingHeader =
-    first500.includes("SỞ GIÁO DỤC") ||
-    first500.includes("PHÒNG GD") ||
-    first500.includes("TRƯỜNG:") ||
-    first500.includes("TRƯỜNG TH") ||
-    first500.includes("UBND");
+    first600.includes("SỞ GIÁO DỤC") ||
+    first600.includes("PHÒNG GD") ||
+    first600.includes("TRƯỜNG:") ||
+    first600.includes("TRƯỜNG TH") ||
+    first600.includes("UBND");
 
-  // Only add standard educational top banner if user didn't have one in their original lesson plan
   if (!hasExistingHeader) {
     paragraphs.push(
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { after: 120, line: 240 },
+        spacing: { after: PARA_SPACING, line: LINE_SPACING },
         children: [
           new TextRun({
             text: "SỞ GIÁO DỤC VÀ ĐÀO TẠO ..... - TRƯỜNG: .....................................",
@@ -500,7 +772,7 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
       }),
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { after: 240, line: 240 },
+        spacing: { after: Math.max(PARA_SPACING, 180), line: LINE_SPACING },
         children: [
           new TextRun({
             text: "TỔ CHUYÊN MÔN: ................................ - GIÁO VIÊN: ................................",
@@ -518,118 +790,202 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
   let tableRowsData: string[][] = [];
 
   const cellBorderDef = {
-    top: { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" },
-    bottom: { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" },
-    left: { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" },
-    right: { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" },
+    top: { style: BorderStyle.SINGLE, size: 4, color: "94A3B8" },
+    bottom: { style: BorderStyle.SINGLE, size: 4, color: "94A3B8" },
+    left: { style: BorderStyle.SINGLE, size: 4, color: "94A3B8" },
+    right: { style: BorderStyle.SINGLE, size: 4, color: "94A3B8" },
+  };
+
+  /**
+   * Appends text/math paragraphs into a TableCell, automatically centering standalone $$...$$ blocks
+   */
+  const pushCellTextLines = (
+    target: Paragraph[],
+    rawSubText: string,
+    isHeaderRow: boolean
+  ) => {
+    const pieces =
+      /\$\$[^$\n]+?\$\$/.test(rawSubText) && !/^\$\$[^$\n]+?\$\$$/.test(rawSubText.trim())
+        ? rawSubText.split(/(\$\$[^$\n]+?\$\$)/g)
+        : [rawSubText];
+
+    for (const piece of pieces) {
+      const p = piece.trim();
+      if (!p) continue;
+
+      if (/^(\$\$[\s\S]+\$\$|\\\[[\s\S]+\\\])$/.test(p)) {
+        target.push(
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 40, after: 40, line: LINE_SPACING },
+            children: parseInlineRuns(p, false, fontName, fontSize, MATH_FORMAT),
+          })
+        );
+        continue;
+      }
+
+      const unwrappedBullet = p.replace(/^\[\[RED:\s*/i, "");
+      const bulletMatch = unwrappedBullet.match(/^([-–*+•])\s+(.*)$/);
+      if (bulletMatch) {
+        const isRedWrap = /^(\[\[RED:)/i.test(p);
+        const body = isRedWrap ? `[[RED:${bulletMatch[2]}` : bulletMatch[2];
+        target.push(
+          new Paragraph({
+            spacing: { after: CELL_PARA_SPACING, line: LINE_SPACING },
+            alignment: isHeaderRow ? AlignmentType.CENTER : AlignmentType.LEFT,
+            indent: { left: 200 },
+            children: [
+              new TextRun({
+                text: "–  ",
+                font: fontName,
+                size: fontSize,
+                bold: false,
+                color: isRedWrap ? RED_COLOR : "000000",
+              }),
+              ...parseInlineRuns(body, isHeaderRow, fontName, fontSize, MATH_FORMAT),
+            ],
+          })
+        );
+      } else {
+        target.push(
+          new Paragraph({
+            spacing: { after: CELL_PARA_SPACING, line: LINE_SPACING },
+            alignment: isHeaderRow ? AlignmentType.CENTER : AlignmentType.LEFT,
+            children: parseInlineRuns(p, isHeaderRow, fontName, fontSize, MATH_FORMAT),
+          })
+        );
+      }
+    }
   };
 
   const flushTable = () => {
     if (tableRowsData.length === 0) return;
-    const colCount = Math.max(...tableRowsData.map(r => r.length));
-    const totalTableWidth = PAGE_WIDTH_DXA - MARGINS.left - MARGINS.right; // ~9639 dxa
+    const colCount = Math.max(...tableRowsData.map((r) => r.length));
+    const totalTableWidth = PAGE_WIDTH_DXA - MARGINS.left - MARGINS.right;
     const colWidth = Math.floor(totalTableWidth / (colCount || 1));
+    const maxCellImgPx = Math.min(Math.max(Math.round(colWidth * 0.052), 190), 270);
 
     const rows = tableRowsData.map((rowCells, rowIdx) => {
       const isHeaderRow = rowIdx === 0;
+      const paddedCells = [...rowCells];
+      while (paddedCells.length < colCount) paddedCells.push("");
+
       return new TableRow({
-        children: rowCells.map(cellText => {
+        children: paddedCells.map((cellText) => {
           const cellParagraphs: Paragraph[] = [];
           const subLines = cellText.split(/<br\s*\/?>/i);
 
-          subLines.forEach(sub => {
-            let trimmedSub = sub.trim();
-            if (!trimmedSub) return;
-
-            // Strip any remaining <br> or <br>- artifacts
-            trimmedSub = trimmedSub
+          subLines.forEach((sub) => {
+            let trimmedSub = sub
+              .trim()
               .replace(/^&lt;br\s*\/?&gt;\s*[-–]?\s*/i, "")
               .replace(/^<br\s*\/?>\s*[-–]?\s*/i, "")
               .replace(/&lt;br\s*\/?&gt;/gi, "")
-              .replace(/<br\s*\/?>/gi, "");
+              .replace(/<br\s*\/?>/gi, "")
+              .trim();
 
             if (!trimmedSub) return;
 
-            const imageMatch = trimmedSub.match(/\[\[IMAGE:([^:\]]+)(?:\:([\s\S]*?))?\]\]/);
+            // Split subline around any [[GEN_SVG:...]] or [[IMAGE:...]] tokens so text AND multiple figures in one cell both render cleanly!
+            const visualTokenRegex = /(\[\[(?:GEN_SVG|IMAGE):[^:\]]+(?::[^\]]*)?\]\])/g;
+            const tokens = trimmedSub.split(visualTokenRegex);
 
-            if (imageMatch) {
-              const imgId = imageMatch[1];
-              const caption = imageMatch[2] || "";
-              const imgObj = findImage(imgId, options.images);
-              
-              const textWithoutImage = trimmedSub.replace(imageMatch[0], "").trim();
-              if (textWithoutImage) {
-                cellParagraphs.push(
-                  new Paragraph({
-                    spacing: { after: 60, line: 240 },
-                    alignment: isHeaderRow ? AlignmentType.CENTER : AlignmentType.LEFT,
-                    children: parseInlineRuns(textWithoutImage, isHeaderRow, fontName, fontSize),
-                  })
-                );
-              }
+            for (const tok of tokens) {
+              const t = tok.trim();
+              if (!t) continue;
 
-              if (imgObj) {
-                try {
-                  const imgData = base64ToUint8Array(imgObj.data);
-                  cellParagraphs.push(
-                    new Paragraph({
-                      alignment: AlignmentType.CENTER,
-                      spacing: { before: 60, after: 40 },
-                      children: [
-                        new ImageRun({
-                          data: imgData,
-                          transformation: { width: Math.min(colWidth * 0.045, 240), height: 150 },
-                          type: imgObj.mimeType?.includes("png") ? "png" : "jpg",
-                        }),
-                      ],
-                    })
-                  );
-                  if (caption) {
+              const genMatch = t.match(/^\[\[GEN_SVG:([^:\]]+)(?::([\s\S]*?))?\]\]$/);
+              if (genMatch) {
+                const visId = genMatch[1];
+                const caption = (genMatch[2] || "").trim();
+                const visObj = visuals.get(visId);
+                if (visObj) {
+                  try {
+                    const imgRun = buildGeneratedVisualRun(visObj, maxCellImgPx);
                     cellParagraphs.push(
                       new Paragraph({
                         alignment: AlignmentType.CENTER,
-                        spacing: { after: 60 },
+                        spacing: { before: 80, after: 40, line: LINE_SPACING },
+                        children: [imgRun],
+                      })
+                    );
+                    const finalCap = caption || visObj.caption;
+                    if (finalCap) {
+                      cellParagraphs.push(
+                        new Paragraph({
+                          alignment: AlignmentType.CENTER,
+                          spacing: { after: 60, line: LINE_SPACING },
+                          children: parseInlineRuns(
+                            finalCap,
+                            false,
+                            fontName,
+                            CAPTION_FONT_SIZE,
+                            MATH_FORMAT
+                          ),
+                        })
+                      );
+                    }
+                  } catch (e) {
+                    console.error("Cell generated SVG embedding error:", e);
+                  }
+                }
+                continue;
+              }
+
+              const imageMatch = t.match(/^\[\[IMAGE:([^:\]]+)(?::([\s\S]*?))?\]\]$/);
+              if (imageMatch) {
+                const imgId = imageMatch[1];
+                const caption = (imageMatch[2] || "").trim();
+                const imgObj = findImage(imgId, options.images);
+                if (imgObj) {
+                  try {
+                    const imgData = base64ToBytes(imgObj.data);
+                    cellParagraphs.push(
+                      new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { before: 60, after: 40, line: LINE_SPACING },
                         children: [
-                          new TextRun({ text: caption, font: fontName, size: 20, italics: true, color: "475569" }),
+                          new ImageRun({
+                            data: imgData,
+                            transformation: { width: maxCellImgPx, height: Math.round(maxCellImgPx * 0.68) },
+                            type: imgObj.mimeType?.includes("png") ? "png" : "jpg",
+                          }),
                         ],
                       })
                     );
+                    if (caption) {
+                      cellParagraphs.push(
+                        new Paragraph({
+                          alignment: AlignmentType.CENTER,
+                          spacing: { after: 60, line: LINE_SPACING },
+                          children: [
+                            new TextRun({
+                              text: caption,
+                              font: fontName,
+                              size: CAPTION_FONT_SIZE,
+                              italics: true,
+                              color: "334155",
+                            }),
+                          ],
+                        })
+                      );
+                    }
+                  } catch (e) {
+                    console.error("Cell image embedding error:", e);
                   }
-                } catch (e) {
-                  console.error("Cell image embedding error:", e);
+                } else if (caption) {
+                  cellParagraphs.push(
+                    new Paragraph({
+                      alignment: AlignmentType.CENTER,
+                      spacing: { before: 60, after: 60, line: LINE_SPACING },
+                      children: parseInlineRuns(caption, false, fontName, CAPTION_FONT_SIZE, MATH_FORMAT),
+                    })
+                  );
                 }
-              } else if (caption) {
-                cellParagraphs.push(
-                  new Paragraph({
-                    alignment: AlignmentType.CENTER,
-                    spacing: { before: 60, after: 60 },
-                    children: [
-                      new TextRun({
-                        text: `[${caption}]`,
-                        font: fontName,
-                        size: fontSize,
-                        italics: true,
-                        bold: true,
-                        color: "1E3A8A",
-                      }),
-                    ],
-                  })
-                );
+                continue;
               }
-            } else {
-              const isBullet = /^[-–*+]\s+/.test(trimmedSub);
-              const cleanSub = isBullet ? trimmedSub.replace(/^[-–*+]\s+/, "") : trimmedSub;
-              cellParagraphs.push(
-                new Paragraph({
-                  spacing: { after: 60, line: 240 },
-                  alignment: isHeaderRow ? AlignmentType.CENTER : AlignmentType.LEFT,
-                  indent: isBullet ? { left: 240 } : undefined,
-                  children: [
-                    ...(isBullet ? [new TextRun({ text: "–  ", font: fontName, size: fontSize, bold: false })] : []),
-                    ...parseInlineRuns(cleanSub, isHeaderRow, fontName, fontSize),
-                  ],
-                })
-              );
+
+              pushCellTextLines(cellParagraphs, t, isHeaderRow);
             }
           });
 
@@ -638,12 +994,13 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
             shading: isHeaderRow ? { fill: "F1F5F9" } : undefined,
             borders: cellBorderDef,
             margins: {
-              top: 120,
-              bottom: 120,
+              top: 110,
+              bottom: 110,
               left: 140,
               right: 140,
             },
-            children: cellParagraphs.length > 0 ? cellParagraphs : [new Paragraph({ children: [] })],
+            children:
+              cellParagraphs.length > 0 ? cellParagraphs : [new Paragraph({ children: [] })],
           });
         }),
       });
@@ -655,7 +1012,9 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
         rows,
       })
     );
-    paragraphs.push(new Paragraph({ spacing: { after: 120, line: 240 }, children: [] }));
+    paragraphs.push(
+      new Paragraph({ spacing: { after: PARA_SPACING, line: LINE_SPACING }, children: [] })
+    );
     tableRowsData = [];
     inTable = false;
   };
@@ -665,25 +1024,67 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
     const cleaned = cleanLineFormatting(rawLine);
     const trimmed = cleaned.trim();
 
-    // Check if line is a standalone image tag: [[IMAGE:1:Hình 1. Thí nghiệm...]] or [[IMAGE:old_plan_img_1:...]]
+    // 1. Standalone generated mathematical SVG/figure tag: [[GEN_SVG:gen_svg_1:Hình 2.5...]]
+    const genSvgMatch = trimmed.match(/^\[\[GEN_SVG:([^:\]]+)(?::([\s\S]*?))?\]\]$/);
+    if (genSvgMatch) {
+      if (inTable) flushTable();
+      const visId = genSvgMatch[1];
+      const caption = (genSvgMatch[2] || "").trim();
+      const visObj = visuals.get(visId);
+
+      if (visObj) {
+        try {
+          const imgRun = buildGeneratedVisualRun(visObj, 380);
+          paragraphs.push(
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 140, after: 60, line: LINE_SPACING },
+              children: [imgRun],
+            })
+          );
+          const finalCap = caption || visObj.caption;
+          if (finalCap) {
+            paragraphs.push(
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: PARA_SPACING, line: LINE_SPACING },
+                children: parseInlineRuns(
+                  finalCap,
+                  false,
+                  fontName,
+                  CAPTION_FONT_SIZE,
+                  MATH_FORMAT
+                ),
+              })
+            );
+          }
+        } catch (e) {
+          console.error("Standalone SVG figure embedding error:", e);
+        }
+      }
+      i++;
+      continue;
+    }
+
+    // 2. Standalone uploaded image tag: [[IMAGE:1:Hình 1...]]
     const imageTagMatch = trimmed.match(/^\[\[IMAGE:([^:\]]+)(?:\:([\s\S]*?))?\]\]$/);
     if (imageTagMatch) {
       if (inTable) flushTable();
       const imgId = imageTagMatch[1];
-      const caption = imageTagMatch[2] || "";
+      const caption = (imageTagMatch[2] || "").trim();
       const imgObj = findImage(imgId, options.images);
 
       if (imgObj) {
         try {
-          const imgData = base64ToUint8Array(imgObj.data);
+          const imgData = base64ToBytes(imgObj.data);
           paragraphs.push(
             new Paragraph({
               alignment: AlignmentType.CENTER,
-              spacing: { before: 160, after: 60 },
+              spacing: { before: 160, after: 60, line: LINE_SPACING },
               children: [
                 new ImageRun({
                   data: imgData,
-                  transformation: { width: 440, height: 260 },
+                  transformation: { width: 400, height: 250 },
                   type: imgObj.mimeType?.includes("png") ? "png" : "jpg",
                 }),
               ],
@@ -693,12 +1094,12 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
             paragraphs.push(
               new Paragraph({
                 alignment: AlignmentType.CENTER,
-                spacing: { after: 140, line: 240 },
+                spacing: { after: PARA_SPACING, line: LINE_SPACING },
                 children: [
                   new TextRun({
                     text: caption,
                     font: fontName,
-                    size: 22, // 11pt
+                    size: CAPTION_FONT_SIZE,
                     italics: true,
                     color: "475569",
                   }),
@@ -713,17 +1114,8 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
         paragraphs.push(
           new Paragraph({
             alignment: AlignmentType.CENTER,
-            spacing: { before: 140, after: 140, line: 240 },
-            children: [
-              new TextRun({
-                text: `[${caption}]`,
-                font: fontName,
-                size: fontSize,
-                italics: true,
-                bold: true,
-                color: "1E3A8A",
-              }),
-            ],
+            spacing: { before: 100, after: PARA_SPACING, line: LINE_SPACING },
+            children: parseInlineRuns(caption, false, fontName, fontSize, MATH_FORMAT),
           })
         );
       }
@@ -731,17 +1123,14 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
       continue;
     }
 
-    // Check if line is a table row: starts and ends with |
+    // 3. Markdown Table Row: starts and ends with |
     if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
       if (/^\|[\s\-:|]+\|$/.test(trimmed)) {
         i++;
         continue;
       }
       inTable = true;
-      const cells = trimmed
-        .slice(1, -1)
-        .split("|")
-        .map(c => cleanLineFormatting(c.trim(), true));
+      const cells = splitMarkdownTableRow(trimmed).map((c) => cleanLineFormatting(c.trim(), true));
       tableRowsData.push(cells);
       i++;
       continue;
@@ -754,68 +1143,104 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
       continue;
     }
 
-    // Heading 1 / Lesson Title
-    if (trimmed.startsWith("# ") || trimmed.startsWith("KẾ HOẠCH BÀI DẠY") || trimmed.startsWith("GIÁO ÁN")) {
+    // 4. Heading 1 / Lesson Title
+    if (
+      trimmed.startsWith("# ") ||
+      trimmed.startsWith("KẾ HOẠCH BÀI DẠY") ||
+      trimmed.startsWith("GIÁO ÁN") ||
+      /^BÀI\s+\d+\s*[:.\-]/i.test(trimmed)
+    ) {
       const headingText = trimmed.replace(/^#\s*/, "");
       paragraphs.push(
         new Paragraph({
           alignment: AlignmentType.CENTER,
-          spacing: { before: 200, after: 160, line: 240 },
-          children: [
-            new TextRun({
-              text: headingText.toUpperCase(),
-              font: fontName,
-              size: TITLE_FONT_SIZE,
-              bold: true,
-              color: "1E293B",
-            }),
-          ],
+          spacing: {
+            before: Math.max(PARA_SPACING, 160),
+            after: PARA_SPACING,
+            line: LINE_SPACING,
+          },
+          children: parseInlineRuns(headingText.toUpperCase(), true, fontName, TITLE_FONT_SIZE, MATH_FORMAT),
         })
       );
       i++;
       continue;
     }
 
-    // Main section roman numerals I., II., III., IV. (no leading '*' or '.')
-    if (/^[I|V|XLCDM]+\.\s+/i.test(trimmed) || trimmed.startsWith("## ")) {
+    // 5. Main section roman numerals I., II., III., IV., V. or TIẾT 1, TIẾT 2...
+    if (
+      /^[IVXLCDM]+\.\s+/i.test(trimmed) ||
+      /^TIẾT\s+\d+\b/i.test(trimmed) ||
+      trimmed.startsWith("## ")
+    ) {
       const secText = trimmed.replace(/^##\s*/, "");
       paragraphs.push(
         new Paragraph({
-          spacing: { before: 180, after: 120, line: 240 },
-          children: parseInlineRuns(secText, true, fontName, fontSize),
+          spacing: {
+            before: Math.max(PARA_SPACING, 160),
+            after: PARA_SPACING,
+            line: LINE_SPACING,
+          },
+          children: parseInlineRuns(secText, true, fontName, fontSize, MATH_FORMAT),
         })
       );
       i++;
       continue;
     }
 
-    // Subsection 1., 2., 3. or a), b), c) or Hoạt động... (no leading '*' or '.')
-    if (/^(\d+\.|[a-z]\))\s+/i.test(trimmed) || /^Hoạt động\s+\d+/i.test(trimmed) || trimmed.startsWith("### ")) {
+    // 6. Subsection 1., 2., 3. or a., b., c., d. or a), b) or Hoạt động...
+    if (
+      /^(\d+\.|[a-d][.)])\s+/i.test(trimmed) ||
+      /^HOẠT ĐỘNG\s+\d+/i.test(trimmed) ||
+      /^Hoạt động\s+\d+/i.test(trimmed) ||
+      /^Phân bố thời lượng/i.test(trimmed) ||
+      trimmed.startsWith("### ")
+    ) {
       const subText = trimmed.replace(/^###\s*/, "");
-      paragraphs.push(
-        new Paragraph({
-          spacing: { before: 100, after: 80, line: 240 },
-          children: parseInlineRuns(subText, true, fontName, fontSize),
-        })
-      );
+      // For "a. Mục tiêu: nội dung...", bold only the label if there's body text after ':'
+      const labelColonMatch = subText.match(/^([a-d][.)]\s*[^:]{2,25}:)\s+([\s\S]+)$/i);
+      if (labelColonMatch) {
+        paragraphs.push(
+          new Paragraph({
+            alignment: AlignmentType.BOTH,
+            spacing: { before: 80, after: PARA_SPACING, line: LINE_SPACING },
+            children: [
+              ...parseInlineRuns(`${labelColonMatch[1]} `, true, fontName, fontSize, MATH_FORMAT),
+              ...parseInlineRuns(labelColonMatch[2], false, fontName, fontSize, MATH_FORMAT),
+            ],
+          })
+        );
+      } else {
+        paragraphs.push(
+          new Paragraph({
+            spacing: { before: 100, after: Math.max(60, PARA_SPACING), line: LINE_SPACING },
+            children: parseInlineRuns(subText, true, fontName, fontSize, MATH_FORMAT),
+          })
+        );
+      }
       i++;
       continue;
     }
 
-    // Bullet points: '-' or '–' or '+' or '*' (with or without [[RED:...]] wrapper)
+    // 7. Bullet points: '-', '–', '+', '*', '•' (with or without [[RED:...]] wrapper)
     const unwrappedForBullet = trimmed.replace(/^\[\[RED:\s*/i, "");
-    const bulletMatch = unwrappedForBullet.match(/^([-–*+])\s+(.*)$/);
+    const bulletMatch = unwrappedForBullet.match(/^([-–*+•])\s+(.*)$/);
     if (bulletMatch) {
-      const isRedWrapped = trimmed.startsWith("[[RED:");
+      const isRedWrapped = /^\[\[RED:/i.test(trimmed);
       const bulletBody = bulletMatch[2];
       const runContent = isRedWrapped ? `[[RED:${bulletBody}` : bulletBody;
       paragraphs.push(
         new Paragraph({
-          indent: { left: 400 },
-          spacing: { after: 120, line: 240 },
+          indent: { left: 360 },
+          spacing: { after: PARA_SPACING, line: LINE_SPACING },
           children: [
-            new TextRun({ text: "–  ", font: fontName, size: fontSize, bold: false }),
-            ...parseInlineRuns(runContent, false, fontName, fontSize),
+            new TextRun({
+              text: "–  ",
+              font: fontName,
+              size: fontSize,
+              bold: false,
+              color: isRedWrapped ? RED_COLOR : "000000",
+            }),
+            ...parseInlineRuns(runContent, false, fontName, fontSize, MATH_FORMAT),
           ],
         })
       );
@@ -823,26 +1248,31 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
       continue;
     }
 
-    // Standalone display math equation ($$...$$ or \[...\])
-    if (/^(\$\$[\s\S]+\$\$|\\\[[\s\S]+\\\])$/.test(trimmed)) {
+    // 8. Standalone display math equation ($$...$$ or \[...\]) - centered separate paragraph
+    const unwrappedForMath = trimmed.replace(/^\[\[RED:\s*/i, "").replace(/\]\]\s*$/, "").trim();
+    if (/^(\$\$[\s\S]+\$\$|\\\[[\s\S]+\\\])$/.test(unwrappedForMath)) {
       paragraphs.push(
         new Paragraph({
           alignment: AlignmentType.CENTER,
-          spacing: { before: 120, after: 120, line: 240 },
-          children: parseInlineRuns(trimmed, false, fontName, fontSize),
+          spacing: {
+            before: Math.max(80, PARA_SPACING),
+            after: Math.max(80, PARA_SPACING),
+            line: LINE_SPACING,
+          },
+          children: parseInlineRuns(trimmed, false, fontName, fontSize, MATH_FORMAT),
         })
       );
       i++;
       continue;
     }
 
-    // Regular paragraph (standard 13pt Times New Roman, line spacing single / 240 dxa, justified)
+    // 9. Regular paragraph (honoring fontName, fontSize, LINE_SPACING, PARA_SPACING)
     paragraphs.push(
       new Paragraph({
         alignment: AlignmentType.BOTH,
-        spacing: { after: 120, line: 240 },
-        indent: { firstLine: 400 }, // Thụt lề đầu dòng chuẩn 0.7 cm
-        children: parseInlineRuns(trimmed, false, fontName, fontSize),
+        spacing: { after: PARA_SPACING, line: LINE_SPACING },
+        indent: { firstLine: 400 },
+        children: parseInlineRuns(trimmed, false, fontName, fontSize, MATH_FORMAT),
       })
     );
 
@@ -853,8 +1283,32 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
     flushTable();
   }
 
-  // Create standard A4 document
-  // Requirement: "số trang để ở giữa header chỉ ghi số trang không ghi định dạng kiểu 'Trang 1/1'"
+  // Configure Header / Footer strictly matching user-selected PAGE_NUMBER option
+  const buildPageNumberParagraph = (align: (typeof AlignmentType)[keyof typeof AlignmentType]) =>
+    new Paragraph({
+      alignment: align,
+      spacing: { before: 0, after: 0 },
+      children: [
+        new TextRun({
+          children: [PageNumber.CURRENT],
+          font: fontName,
+          size: Math.max(22, fontSize - 2),
+        }),
+      ],
+    });
+
+  const sectionHeaders =
+    PAGE_NUMBER === "top-center"
+      ? { default: new Header({ children: [buildPageNumberParagraph(AlignmentType.CENTER)] }) }
+      : undefined;
+
+  const sectionFooters =
+    PAGE_NUMBER === "bottom-center"
+      ? { default: new Footer({ children: [buildPageNumberParagraph(AlignmentType.CENTER)] }) }
+      : PAGE_NUMBER === "bottom-right"
+      ? { default: new Footer({ children: [buildPageNumberParagraph(AlignmentType.RIGHT)] }) }
+      : undefined;
+
   const doc = new Document({
     sections: [
       {
@@ -872,36 +1326,49 @@ export async function exportLessonPlanToDocx(rawContent: string, options: ParseO
             },
           },
         },
-        headers: {
-          default: new Header({
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { before: 0, after: 120 },
-                children: [
-                  new TextRun({
-                    children: [PageNumber.CURRENT],
-                    font: fontName,
-                    size: 24, // 12pt clean number
-                  }),
-                ],
-              }),
-            ],
-          }),
-        },
+        ...(sectionHeaders ? { headers: sectionHeaders } : {}),
+        ...(sectionFooters ? { footers: sectionFooters } : {}),
         children: paragraphs,
       },
     ],
   });
 
-  const blob = await Packer.toBlob(doc);
-  const cleanGrade = (options.grade || '').replace(/^Lớp\s*/i, 'Lop_').replace(/\s+/g, '');
-  const cleanSubject = (options.subject || '').replace(/\s+/g, '_');
-  const cleanTitle = (options.lessonTitle || 'BaiDay')
-    .replace(/^BÀI\s*\d*[:\s\.\-]*/i, '')
+  const uint8Buffer = await Packer.toBuffer(doc);
+  const uint8Array = new Uint8Array(uint8Buffer);
+  const blob = new Blob([uint8Array], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+
+  // Verify actual XML structure of the generated DOCX before delivering
+  const verification = await verifyGeneratedDocxXml(uint8Array, MATH_FORMAT);
+
+  const cleanGrade = (options.grade || "").replace(/^Lớp\s*/i, "Lop_").replace(/\s+/g, "");
+  const cleanSubject = (options.subject || "").replace(/\s+/g, "_");
+  const cleanTitle = (options.lessonTitle || "BaiDay")
+    .replace(/^BÀI\s*\d*[:\s.\-]*/i, "")
     .trim()
-    .replace(/[^a-zA-Z0-9\u00C0-\u1EF9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  const safeFilename = `GiaoAn_${cleanSubject}_${cleanGrade}_${cleanTitle}.docx`;
-  saveAs(blob, safeFilename);
+    .replace(/[^a-zA-Z0-9\u00C0-\u1EF9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const modeSuffix = MATH_FORMAT === "latex" ? "_LaTeX" : "_Equation";
+  const filename = `GiaoAn_${cleanSubject}_${cleanGrade}_${cleanTitle}${modeSuffix}.docx`;
+
+  return {
+    blob,
+    uint8Array,
+    verification,
+    filename,
+  };
+}
+
+/**
+ * Exports and triggers browser download of the verified Word (.docx) file,
+ * returning the real XML verification report so the UI can display verified stats.
+ */
+export async function exportLessonPlanToDocx(
+  rawContent: string,
+  options: ParseOptions
+): Promise<DocxVerificationReport> {
+  const { blob, verification, filename } = await buildLessonPlanDocxBlob(rawContent, options);
+  saveAs(blob, filename);
+  return verification;
 }

@@ -14,15 +14,17 @@ import {
   DEFAULT_TEACHER_EQUIPMENT,
   DEFAULT_STUDENT_EQUIPMENT,
 } from './data/competencyData';
-import { COMPETENCY_3456_ITEMS } from './data/competency3456Items';
+import { COMPETENCY_3456_ITEMS, getSuggestedCodesForGrade } from './data/competency3456Items';
 import { CustomIndicatorEntry } from './components/CompetencySelector';
 import {
   TeacherAccount,
   getSavedTeacherAccount,
 } from './utils/userAccount';
-import { exportLessonPlanToDocx } from './utils/docxExport';
-import { injectIntoDocxWithReport } from './utils/docxInjector';
-import { saveAs } from 'file-saver';
+import {
+  exportLessonPlanToDocx,
+  FormattingOptions,
+  DocxVerificationReport,
+} from './utils/docxExport';
 import {
   Sparkles,
   ArrowRight,
@@ -32,8 +34,7 @@ import {
   FileText,
   Mail,
   CheckCircle2,
-  ShieldCheck,
-  Key,
+  FileCode2,
 } from 'lucide-react';
 
 export default function App() {
@@ -62,22 +63,13 @@ export default function App() {
   const [lessonDuration, setLessonDuration] = useState<string>('2 tiết');
   const [curriculum, setCurriculum] = useState<string>('Kết nối tri thức với cuộc sống (NXB GDVN)');
 
-  // Competencies: Official VB 3456 Codes (default 4 core indicators)
-  const [selectedCodes, setSelectedCodes] = useState<string[]>([
-    '1.1.TC1b',
-    '1.2.TC1a',
-    '2.2.TC1a',
-    '6.1.TC1a',
-  ]);
+  // Competencies: Official VB 3456 Codes (default 4 core indicators matching initial grade)
+  const [selectedCodes, setSelectedCodes] = useState<string[]>(() =>
+    getSuggestedCodesForGrade('Lớp 7')
+  );
 
   // Custom Teacher-defined / Pasted Indicators
-  const [customIndicators, setCustomIndicators] = useState<CustomIndicatorEntry[]>([
-    {
-      code: 'NLS.GV-1',
-      yccd: 'Sử dụng phần mềm chuyên ngành / thí nghiệm mô phỏng',
-      explanation: 'Học sinh điều chỉnh tham số trên phần mềm mô phỏng theo nhóm, quan sát sự biến thiên và báo cáo kết quả trên Smart TV.',
-    },
-  ]);
+  const [customIndicators, setCustomIndicators] = useState<CustomIndicatorEntry[]>([]);
 
   // Equipment & Tools
   const [teacherEquipment, setTeacherEquipment] = useState<EquipmentItem[]>([...DEFAULT_TEACHER_EQUIPMENT]);
@@ -96,20 +88,80 @@ export default function App() {
   const [sgkImages, setSgkImages] = useState<SgkImageItem[]>([]);
   const [oldPlanImages, setOldPlanImages] = useState<SgkImageItem[]>([]);
   const [originalDocxBuffer, setOriginalDocxBuffer] = useState<ArrayBuffer | null>(null);
-  const [formattingOptions, setFormattingOptions] = useState({
+  const [formattingOptions, setFormattingOptions] = useState<FormattingOptions>({
     fontName: 'Times New Roman',
     fontSize: 26, // 13pt
-    lineSpacing: 240, // Single
+    lineSpacing: 240, // Single (1.0)
     paraSpacing: 120, // 6pt
-    pageNumber: 'bottom-center' as 'bottom-center' | 'bottom-right' | 'none',
+    pageNumber: 'bottom-center',
     margins: { top: 850, bottom: 850, left: 1417, right: 850 },
+    mathFormat: 'equation',
   });
 
-  // Generation status
+  // Generation & DOCX XML Verification status
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generatedPlan, setGeneratedPlan] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [lastVerification, setLastVerification] = useState<DocxVerificationReport | null>(null);
+
+  // Auto-sync default VB 3456 indicators when grade changes (preserving custom or manually customized selections)
+  const handleGradeChange = (newGrade: string) => {
+    const prevSuggested = new Set([
+      ...getSuggestedCodesForGrade(grade),
+      '1.1.TC1b',
+      '1.2.TC1a',
+      '2.2.TC1a',
+      '6.1.TC1a',
+      '6.2.TC1a',
+    ]);
+    const customCodeSet = new Set(customIndicators.map((c) => c.code));
+    const nonCustomSelected = selectedCodes.filter((c) => !customCodeSet.has(c));
+    const isStillDefaultSet =
+      nonCustomSelected.length === 0 || nonCustomSelected.every((c) => prevSuggested.has(c));
+
+    setGrade(newGrade);
+    if (isStillDefaultSet) {
+      const nextCore = getSuggestedCodesForGrade(newGrade);
+      const activeCustom = selectedCodes.filter((c) => customCodeSet.has(c));
+      setSelectedCodes(Array.from(new Set([...nextCore, ...activeCustom])));
+    }
+  };
+
+  // Auto-suggest optimal subject digital tools when switching to Mathematics or Natural Sciences
+  const handleSubjectChange = (newSubject: string) => {
+    setSubject(newSubject);
+    if (newSubject === 'Toán học') {
+      setDigitalTools((prev) => {
+        const filtered = prev.filter(
+          (t) => t !== 'PhET Interactive Simulations (Thí nghiệm ảo KHTN)'
+        );
+        return Array.from(
+          new Set([
+            ...filtered,
+            'Padlet (Bảng cộng tác số)',
+            'Quizizz (Trắc nghiệm số tương tác)',
+            'GeoGebra (Hình học động & đồ thị toán học)',
+            'Desmos (Vẽ đồ thị & miền nghiệm trực tuyến)',
+            'ChatGPT / Gemini (Trợ lý AI gợi mở & sơ đồ tư duy)',
+          ])
+        );
+      });
+    } else if (
+      newSubject === 'Khoa học tự nhiên' ||
+      newSubject === 'Vật lí' ||
+      newSubject === 'Hóa học'
+    ) {
+      setDigitalTools((prev) =>
+        Array.from(
+          new Set([
+            ...prev,
+            'PhET Interactive Simulations (Thí nghiệm ảo KHTN)',
+          ])
+        )
+      );
+    }
+  };
 
   // Reset all
   const handleReset = () => {
@@ -123,6 +175,7 @@ export default function App() {
       setOldPlanImages([]);
       setOriginalDocxBuffer(null);
       setGeneratedPlan('');
+      setLastVerification(null);
       setCurrentStep(1);
     }
   };
@@ -156,6 +209,7 @@ export default function App() {
 
     setIsGenerating(true);
     setErrorMessage(null);
+    setLastVerification(null);
 
     const standardPayload = COMPETENCY_3456_ITEMS.filter((item) =>
       selectedCodes.includes(item.code)
@@ -206,6 +260,8 @@ export default function App() {
       customNote,
       phuLuc1Text,
       phuLuc3Text,
+      mathFormat: formattingOptions.mathFormat || 'equation',
+      formattingOptions,
     };
 
     try {
@@ -273,17 +329,18 @@ export default function App() {
       setIsExporting(true);
       // Combine genuine textbook images and genuine illustrations from old plan (exclude MathType WMF/EMF previews)
       const exportImages = [
-        ...sgkImages.filter(img => img.mimeType?.startsWith('image/')),
-        ...oldPlanImages.filter(img => !/wmf|emf/i.test(img.mimeType || ''))
+        ...sgkImages.filter((img) => img.mimeType?.startsWith('image/')),
+        ...oldPlanImages.filter((img) => !/wmf|emf/i.test(img.mimeType || '')),
       ];
 
-      await exportLessonPlanToDocx(generatedPlan, {
+      const report = await exportLessonPlanToDocx(generatedPlan, {
         lessonTitle: lessonTitle || 'GiaoAn_NangLucSo',
         subject,
         grade,
         images: exportImages,
         formatting: formattingOptions,
       });
+      setLastVerification(report);
     } catch (err: any) {
       alert('Có lỗi khi tải tệp Word: ' + err.message);
     } finally {
@@ -498,7 +555,7 @@ export default function App() {
                     </label>
                     <select
                       value={subject}
-                      onChange={(e) => setSubject(e.target.value)}
+                      onChange={(e) => handleSubjectChange(e.target.value)}
                       className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium text-slate-900"
                     >
                       {SUBJECTS.map((s) => (
@@ -516,7 +573,7 @@ export default function App() {
                     </label>
                     <select
                       value={grade}
-                      onChange={(e) => setGrade(e.target.value)}
+                      onChange={(e) => handleGradeChange(e.target.value)}
                       className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium text-slate-900"
                     >
                       {GRADES.map((g) => (
@@ -754,14 +811,18 @@ export default function App() {
                 </div>
 
                 {/* Call-to-action to generate */}
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 shadow-xs">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">5</span>
-                    <h4 className="text-sm font-bold text-slate-800">Cấu hình định dạng văn bản (Chỉ áp dụng khi tạo mới hoặc dựng lại)</h4>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 shadow-xs space-y-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">
+                      5
+                    </span>
+                    <h4 className="text-sm font-bold text-slate-800">
+                      Cấu hình định dạng văn bản, Hình vẽ (1pt Black) &amp; Công thức Toán học
+                    </h4>
                   </div>
-                  
+
                   {originalDocxBuffer && (
-                    <div className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg p-2.5 mb-3 flex items-center gap-2">
+                    <div className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg p-2.5 flex items-center gap-2">
                       <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
                       <span>
                         <b>Đã nạp file bài soạn mẫu:</b> AI sẽ tham chiếu bố cục của giáo án này. Khi xuất bản Word (.docx), bài dạy mới sẽ được định dạng chuẩn quy cách dưới đây.
@@ -769,11 +830,95 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* 2-CHOICE MATH & FIGURE OUTPUT MODE SELECTOR: EQUATION vs LATEX */}
+                  <div className="bg-white border border-indigo-200 rounded-xl p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <FileCode2 className="w-4 h-4 text-indigo-600" />
+                        <span>Chế độ trả về Công thức Toán học &amp; Hình vẽ trong Giáo án (.docx):</span>
+                      </label>
+                      <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        Hình vẽ / Đồ thị / Miền nghiệm: Tự động vẽ &amp; chèn trực tiếp (nét 1pt, màu black)
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {/* Option 1: EQUATION (OMML) */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormattingOptions({ ...formattingOptions, mathFormat: 'equation' })
+                        }
+                        className={`text-left p-3 rounded-xl border-2 transition-all ${
+                          (formattingOptions.mathFormat || 'equation') === 'equation'
+                            ? 'border-indigo-600 bg-indigo-50/60 ring-1 ring-indigo-600/20'
+                            : 'border-slate-200 bg-slate-50/60 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-indigo-950">
+                            1. Equation (Đối tượng OMML chuẩn Microsoft Word)
+                          </span>
+                          <span
+                            className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
+                              (formattingOptions.mathFormat || 'equation') === 'equation'
+                                ? 'bg-indigo-600 text-white'
+                                : 'border border-slate-300 bg-white'
+                            }`}
+                          >
+                            {(formattingOptions.mathFormat || 'equation') === 'equation' && '✓'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                          100% công thức, biểu thức, ký hiệu, tọa độ, hệ bất phương trình là đối tượng{' '}
+                          <b>Equation có cấu trúc OMML</b> chỉnh sửa trực tiếp trong Word. Kiểm tra XML thực tế trước khi bàn giao; kèm hình vẽ nét 1pt màu black đúng vị trí.
+                        </p>
+                      </button>
+
+                      {/* Option 2: LATEX (RAW LATEX) */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormattingOptions({ ...formattingOptions, mathFormat: 'latex' })
+                        }
+                        className={`text-left p-3 rounded-xl border-2 transition-all ${
+                          formattingOptions.mathFormat === 'latex'
+                            ? 'border-amber-600 bg-amber-50/60 ring-1 ring-amber-600/20'
+                            : 'border-slate-200 bg-slate-50/60 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-amber-950">
+                            2. LaTeX (Mã LaTeX thô nguyên văn $...$, $$...$$)
+                          </span>
+                          <span
+                            className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
+                              formattingOptions.mathFormat === 'latex'
+                                ? 'bg-amber-600 text-white'
+                                : 'border border-slate-300 bg-white'
+                            }`}
+                          >
+                            {formattingOptions.mathFormat === 'latex' && '✓'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                          100% công thức viết bằng <b>MÃ LaTeX THÔ</b> như chữ thường trong Word (nội dòng{' '}
+                          <code>$...$</code>, riêng dòng căn giữa <code>$$...$$</code>, không tạo OMML, không ký tự Unicode toán, mũ/chỉ số <code>{'x^{2}, a_{n}'}</code>, thập phân <code>{'2{,}5'}</code>); kèm hình vẽ nét 1pt màu black.
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
                     <div>
                       <label className="block text-slate-600 font-medium mb-1">Font chữ</label>
-                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                        value={formattingOptions.fontName} onChange={(e) => setFormattingOptions({...formattingOptions, fontName: e.target.value})}>
+                      <select
+                        className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500 bg-white py-1.5 px-2"
+                        value={formattingOptions.fontName}
+                        onChange={(e) =>
+                          setFormattingOptions({ ...formattingOptions, fontName: e.target.value })
+                        }
+                      >
                         <option value="Times New Roman">Times New Roman</option>
                         <option value="Arial">Arial</option>
                         <option value="Calibri">Calibri</option>
@@ -781,8 +926,16 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-slate-600 font-medium mb-1">Cỡ chữ</label>
-                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                        value={formattingOptions.fontSize} onChange={(e) => setFormattingOptions({...formattingOptions, fontSize: Number(e.target.value)})}>
+                      <select
+                        className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500 bg-white py-1.5 px-2"
+                        value={formattingOptions.fontSize}
+                        onChange={(e) =>
+                          setFormattingOptions({
+                            ...formattingOptions,
+                            fontSize: Number(e.target.value),
+                          })
+                        }
+                      >
                         <option value={22}>11 pt</option>
                         <option value={24}>12 pt</option>
                         <option value={26}>13 pt</option>
@@ -791,8 +944,16 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-slate-600 font-medium mb-1">Cách dòng</label>
-                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                        value={formattingOptions.lineSpacing} onChange={(e) => setFormattingOptions({...formattingOptions, lineSpacing: Number(e.target.value)})}>
+                      <select
+                        className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500 bg-white py-1.5 px-2"
+                        value={formattingOptions.lineSpacing}
+                        onChange={(e) =>
+                          setFormattingOptions({
+                            ...formattingOptions,
+                            lineSpacing: Number(e.target.value),
+                          })
+                        }
+                      >
                         <option value={240}>Single (1.0)</option>
                         <option value={276}>1.15 lines</option>
                         <option value={360}>1.5 lines</option>
@@ -800,8 +961,16 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-slate-600 font-medium mb-1">Cách đoạn</label>
-                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                        value={formattingOptions.paraSpacing} onChange={(e) => setFormattingOptions({...formattingOptions, paraSpacing: Number(e.target.value)})}>
+                      <select
+                        className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500 bg-white py-1.5 px-2"
+                        value={formattingOptions.paraSpacing}
+                        onChange={(e) =>
+                          setFormattingOptions({
+                            ...formattingOptions,
+                            paraSpacing: Number(e.target.value),
+                          })
+                        }
+                      >
                         <option value={0}>0 pt</option>
                         <option value={120}>6 pt</option>
                         <option value={240}>12 pt</option>
@@ -809,31 +978,48 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-slate-600 font-medium mb-1">Đánh số trang</label>
-                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                        value={formattingOptions.pageNumber} onChange={(e) => setFormattingOptions({...formattingOptions, pageNumber: e.target.value as any})}>
+                      <select
+                        className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500 bg-white py-1.5 px-2"
+                        value={formattingOptions.pageNumber}
+                        onChange={(e) =>
+                          setFormattingOptions({
+                            ...formattingOptions,
+                            pageNumber: e.target.value as FormattingOptions['pageNumber'],
+                          })
+                        }
+                      >
                         <option value="bottom-center">Giữa trang (Dưới)</option>
                         <option value="bottom-right">Góc phải (Dưới)</option>
+                        <option value="top-center">Giữa trang (Trên)</option>
                         <option value="none">Không đánh số</option>
                       </select>
                     </div>
                     <div>
                       <label className="block text-slate-600 font-medium mb-1">Căn lề</label>
-                      <select className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500"
-                        value={formattingOptions.margins.top === 850 ? 'normal' : 'narrow'} 
+                      <select
+                        className="w-full border-slate-300 rounded focus:ring-indigo-500 focus:border-indigo-500 bg-white py-1.5 px-2"
+                        value={formattingOptions.margins.top === 850 ? 'normal' : 'narrow'}
                         onChange={(e) => {
                           if (e.target.value === 'normal') {
-                            setFormattingOptions({...formattingOptions, margins: { top: 850, bottom: 850, left: 1417, right: 850 }});
+                            setFormattingOptions({
+                              ...formattingOptions,
+                              margins: { top: 850, bottom: 850, left: 1417, right: 850 },
+                            });
                           } else {
-                            // Narrow (1.27cm ~ 720 dxa)
-                            setFormattingOptions({...formattingOptions, margins: { top: 720, bottom: 720, left: 720, right: 720 }});
+                            setFormattingOptions({
+                              ...formattingOptions,
+                              margins: { top: 720, bottom: 720, left: 720, right: 720 },
+                            });
                           }
-                        }}>
+                        }}
+                      >
                         <option value="normal">Chuẩn (T/D/P: 1.5cm, T: 2.5cm)</option>
                         <option value="narrow">Hẹp (1.27cm)</option>
                       </select>
                     </div>
                     <div className="col-span-2 sm:col-span-3 md:col-span-6 mt-1 text-slate-500 italic text-[10px]">
-                      Lưu ý: Hệ thống hiện tại chỉ xuất bản định dạng Word mới chuẩn (.docx). Các định dạng .doc hoặc .pdf xin vui lòng mở file .docx và tự lưu dưới dạng khác (Save as) trên máy tính.
+                      Lưu ý: Hệ thống tự động kiểm tra cấu trúc XML thực tế của file Word (.docx) trước khi tải xuống để đảm bảo tuân thủ tuyệt đối chế độ{' '}
+                      <b>{formattingOptions.mathFormat === 'latex' ? 'LaTeX thô' : 'Equation OMML'}</b> và hình vẽ nét 1pt màu black.
                     </div>
                   </div>
                 </div>
@@ -842,10 +1028,14 @@ export default function App() {
                   <div>
                     <h4 className="text-base font-bold flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-indigo-400" />
-                      Tạo kế hoạch bài dạy tích hợp năng lực số
+                      Tạo kế hoạch bài dạy tích hợp năng lực số (
+                      {formattingOptions.mathFormat === 'latex'
+                        ? 'Chế độ LaTeX thô'
+                        : 'Chế độ Equation OMML'}
+                      )
                     </h4>
                     <p className="text-xs text-indigo-200 mt-1 max-w-2xl leading-relaxed">
-                      AI sẽ giữ nguyên cấu trúc bài soạn gốc hoặc áp dụng khung chuẩn CV 5512/BGDĐT, tích hợp đầy đủ bảng chỉ báo năng lực số đã chọn và tự động bôi đỏ toàn bộ phần mới.
+                      AI sẽ giữ nguyên cấu trúc bài soạn mẫu hoặc áp dụng khung chuẩn CV 5512/BGDĐT, tích hợp đầy đủ bảng chỉ báo năng lực số đã chọn, vẽ hình minh họa 1pt black và bôi đỏ toàn bộ phần năng lực số.
                     </p>
                   </div>
 
@@ -865,7 +1055,11 @@ export default function App() {
                       className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs sm:text-sm font-bold rounded-lg shadow-sm transition-all disabled:opacity-50"
                     >
                       <Sparkles className="w-4 h-4" />
-                      <span>{isGenerating ? 'Đang soạn và bôi đỏ theo mẫu...' : 'Bắt đầu soạn giáo án tích hợp'}</span>
+                      <span>
+                        {isGenerating
+                          ? 'Đang soạn giáo án & vẽ hình...'
+                          : 'Bắt đầu soạn giáo án tích hợp'}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -883,7 +1077,13 @@ export default function App() {
                         Đang xây dựng kế hoạch bài dạy tích hợp năng lực số...
                       </h3>
                       <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                        Đang đối chiếu chỉ báo năng lực số đã chọn và tự nhập, phân tích nội dung bài học và tự động bôi đỏ toàn bộ các câu từ số mới bằng hạn ngạch Gmail của Thầy/Cô.
+                        Đang đối chiếu chỉ báo năng lực số, vẽ hình học/đồ thị nét 1pt black, chuẩn hóa công thức chế độ{' '}
+                        <b>
+                          {formattingOptions.mathFormat === 'latex'
+                            ? 'LaTeX thô ($...$, $$...$$)'
+                            : 'Equation OMML'}
+                        </b>{' '}
+                        và tự động bôi đỏ phần năng lực số.
                       </p>
                     </div>
                   </div>
@@ -895,11 +1095,14 @@ export default function App() {
                     subject={subject}
                     grade={grade}
                     sgkImages={[
-                      ...sgkImages.filter(img => img.mimeType?.startsWith('image/')),
-                      ...oldPlanImages.filter(img => !/wmf|emf/i.test(img.mimeType || ''))
+                      ...sgkImages.filter((img) => img.mimeType?.startsWith('image/')),
+                      ...oldPlanImages.filter((img) => !/wmf|emf/i.test(img.mimeType || '')),
                     ]}
                     originalDocxBuffer={originalDocxBuffer}
                     formattingOptions={formattingOptions}
+                    onChangeFormattingOptions={setFormattingOptions}
+                    lastVerification={lastVerification}
+                    onVerificationReport={setLastVerification}
                   />
                 ) : (
                   <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-4">

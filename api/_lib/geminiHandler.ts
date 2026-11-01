@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
 const getGeminiClient = (userApiKey?: string) => {
-  const envKey = typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : undefined;
+  const envKey = typeof process !== "undefined" && process.env ? process.env.GEMINI_API_KEY : undefined;
   const apiKey = (userApiKey && userApiKey.trim()) || envKey;
   if (!apiKey) {
     throw new Error(
@@ -12,11 +12,13 @@ const getGeminiClient = (userApiKey?: string) => {
     apiKey: apiKey.trim(),
     httpOptions: {
       headers: {
-        'User-Agent': 'aistudio-build',
+        "User-Agent": "aistudio-build",
       },
     },
   });
 };
+
+export type LessonMathFormat = "equation" | "latex";
 
 export interface GenerateLessonPlanPayload {
   userApiKey?: string;
@@ -27,6 +29,15 @@ export interface GenerateLessonPlanPayload {
   lessonTitle: string;
   lessonDuration: string;
   curriculum?: string;
+  mathFormat?: LessonMathFormat;
+  formattingOptions?: {
+    fontName?: string;
+    fontSize?: number; // half-points, e.g. 26 = 13pt
+    lineSpacing?: number; // 240 = 1.0, 276 = 1.15, 360 = 1.5
+    paraSpacing?: number;
+    pageNumber?: string;
+    margins?: { top: number; bottom: number; left: number; right: number };
+  };
   digitalCompetencies: Array<{
     code: string;
     domain?: string;
@@ -42,12 +53,37 @@ export interface GenerateLessonPlanPayload {
   teacherEquipment: Array<{ name: string; quantity: string; note?: string }>;
   studentEquipment: Array<{ name: string; quantity: string; note?: string }>;
   digitalTools: string[];
-  oldLessonPlanText?: string; // Bài soạn gốc/mẫu của giáo viên nếu có
+  oldLessonPlanText?: string;
   sgkImages?: Array<{ mimeType: string; data: string; name?: string; id?: string }>;
   customNote?: string;
-  phuLuc1Text?: string; // Kế hoạch dạy học của tổ chuyên môn (YCCD, phân bổ số tiết, thiết bị, phòng học...)
-  phuLuc3Text?: string; // Kế hoạch giáo dục của giáo viên (mã năng lực số và phương án tổ chức bằng công cụ số...)
+  phuLuc1Text?: string;
+  phuLuc3Text?: string;
 }
+
+/**
+ * Exact verbatim requirement blocks specified by user for 'equation' vs 'latex' modes
+ */
+export const EQUATION_MODE_VERBATIM_REQUIREMENTS = `Yêu cầu tuyệt đối về công thức toán học
+**100% công thức, biểu thức, ký hiệu và số liệu mang ý nghĩa toán học trong toàn bộ file giáo án được xuất ra phải là đối tượng Equation có cấu trúc OMML**, chỉnh sửa được trong Microsoft Word.
+- Áp dụng cho mọi phần: kiến thức, ví dụ, bài tập, lời giải, đáp án, bảng biểu, tọa độ, hệ bất phương trình và các cột hoạt động.
+- Tuyệt đối không viết công thức bằng văn bản thường, ký tự giả lập hoặc hình ảnh.
+- Không để tình trạng chỗ dùng Equation, chỗ viết công thức trực tiếp.
+- Kiểm tra cấu trúc XML của DOCX, rà soát công thức còn thiếu Equation và đối chiếu tính chính xác trước khi bàn giao.
+- Không khẳng định đã đạt 100% nếu chưa kiểm tra thực tế.
+Yêu cầu tuyệt đối về hình vẽ
+• Với mọi câu hỏi cần hình học, đồ thị, biểu diễn miền nghiệm hoặc hình minh họa, phải tạo hình ảnh phù hợp và chèn trực tiếp vào đúng vị trí tương ứng.
+• Hình phải chính xác về toán học, rõ nét, đúng ký hiệu, nhãn điểm, số liệu và quan hệ hình học. độ dày nét vẽ 1pt, màu hình black`;
+
+export const LATEX_MODE_VERBATIM_REQUIREMENTS = `Yêu cầu tuyệt đối về công thức toán học
+Công thức: 100% công thức, ký hiệu toán viết bằng MÃ LaTeX THÔ, hiển thị nguyên văn như chữ thường trong Word (tôi tự chuyển sang Equation sau). Nội dòng $...$, riêng dòng $$...$$ (đoạn riêng, căn giữa). KHÔNG tạo Equation/OMML, MathML, ảnh công thức; không dùng Pandoc tự chuyển $...$. Không dùng ký tự Unicode toán (², √, π, ≤, ≠, ∈, ∞, →, Δ...). Mũ, chỉ số luôn có ngoặc nhọn: x^{2}, a_{n}. Dùng \\frac, \\sqrt, \\le, \\ge, \\in, \\mathbb{R}, \\left(\\right), \\begin{cases}...\\end{cases}, \\overrightarrow{AB}, \\widehat{ABC}, 30^\\circ, \\text{...}; thập phân 2{,}5. Mỗi công thức nằm trọn một dòng, cùng font, không tách định dạng.
+- Áp dụng cho mọi phần: kiến thức, ví dụ, bài tập, lời giải, đáp án, bảng biểu, tọa độ, hệ bất phương trình và các cột hoạt động.
+- Tuyệt đối không viết công thức bằng văn bản thường, ký tự giả lập hoặc hình ảnh.
+- Không để tình trạng chỗ dùng Latex chỗ lại dùng Equation, chỗ viết công thức trực tiếp.
+- Kiểm tra cấu trúc XML của DOCX, rà soát công thức còn thiếu Latex và đối chiếu tính chính xác trước khi bàn giao.
+- Không khẳng định đã đạt 100% nếu chưa kiểm tra thực tế.
+Yêu cầu tuyệt đối về hình vẽ
+• Với mọi câu hỏi cần hình học, đồ thị, biểu diễn miền nghiệm hoặc hình minh họa, phải tạo hình ảnh phù hợp và chèn trực tiếp vào đúng vị trí câu hỏi tương ứng.
+• Hình phải chính xác về toán học, rõ nét, đúng ký hiệu, nhãn điểm, số liệu và quan hệ hình học. độ dày nét vẽ 1pt, màu hình black`;
 
 // Model fallback list to mitigate temporary spikes in demand (503 UNAVAILABLE)
 const CANDIDATE_MODELS = [
@@ -92,17 +128,14 @@ async function callGeminiWithFallback(
           console.warn(
             `[Gemini Call] Model ${modelName} (lần thử ${attempt}) gặp tình trạng quá tải tạm thời (503/429). Đang tự động thử lại...`
           );
-          // Wait briefly before retrying (1s, then 2s)
           await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
         } else {
-          // If it's another non-demand error (e.g. invalid key format), don't retry same model
           break;
         }
       }
     }
   }
 
-  // If all candidate models were unavailable due to global high demand
   const errorMsg = lastError?.message || "";
   if (
     errorMsg.includes("503") ||
@@ -126,7 +159,7 @@ export async function handleVerifyAccount(apiKey: string) {
     apiKey: cleanKey,
     httpOptions: {
       headers: {
-        'User-Agent': 'aistudio-build',
+        "User-Agent": "aistudio-build",
       },
     },
   });
@@ -153,15 +186,45 @@ export async function handleVerifyAccount(apiKey: string) {
   }
 }
 
-export function sanitizeLessonPlanOutput(text: string): string {
+export function sanitizeLessonPlanOutput(
+  text: string,
+  mathFormat: LessonMathFormat = "equation"
+): string {
   if (!text) return "";
 
+  // 0. Protect inline <svg>...</svg> blocks (collapsing internal newlines so they never break Markdown table rows!)
+  const protectedSvgs: string[] = [];
+  let working = text.replace(/```(?:svg|xml|html)?\s*([\s\S]*?<svg\b[\s\S]*?<\/svg>[\s\S]*?)```/gi, (_, inner: string) => {
+    const m = inner.match(/<svg\b[\s\S]*?<\/svg>/i);
+    if (!m) return inner;
+    const singleLineSvg = m[0].replace(/\r?\n/g, " ").replace(/\|/g, "&#124;").replace(/\s{2,}/g, " ").trim();
+    const idx = protectedSvgs.length;
+    protectedSvgs.push(singleLineSvg);
+    return `@@SVG_PROTECTED_${idx}@@`;
+  });
+
+  working = working.replace(/<svg\b[\s\S]*?<\/svg>/gi, (svgBlock: string) => {
+    const singleLineSvg = svgBlock.replace(/\r?\n/g, " ").replace(/\|/g, "&#124;").replace(/\s{2,}/g, " ").trim();
+    const idx = protectedSvgs.length;
+    protectedSvgs.push(singleLineSvg);
+    return `@@SVG_PROTECTED_${idx}@@`;
+  });
+
+  // Collapse multi-line $$...$$ and \[...\] onto a single line before line-by-line processing
+  working = working
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, inner: string) => `$$${inner.replace(/\r?\n/g, " ").trim()}$$`)
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, inner: string) =>
+      mathFormat === "latex"
+        ? `$$${inner.replace(/\r?\n/g, " ").trim()}$$`
+        : `\\[${inner.replace(/\r?\n/g, " ").trim()}\\]`
+    );
+
   // Normalize case-insensitivity and spacing for [[RED:
-  let normalized = text.replace(/\[\[\s*red\s*:/gi, "[[RED:");
+  let normalized = working.replace(/\[\[\s*red\s*:/gi, "[[RED:");
 
   // 1. Normalize multi-line [[RED:...]] tags across newlines and <br>
   normalized = normalized.replace(/\[\[RED:([\s\S]*?)\]\]/gi, (_, inner) => {
-    const lines = inner.split('\n');
+    const lines = inner.split("\n");
     return lines
       .map((line: string) => {
         if (!line.trim()) return line;
@@ -173,22 +236,20 @@ export function sanitizeLessonPlanOutput(text: string): string {
               const cleanSeg = seg.replace(/\[\[\s*RED:?/gi, "").replace(/\]\]/g, "").trim();
               return cleanSeg ? `[[RED:${cleanSeg}]]` : "";
             })
-            .join('');
+            .join("");
         }
         const cleanLine = line.replace(/\[\[\s*RED:?/gi, "").replace(/\]\]/g, "").trim();
         return cleanLine ? `[[RED:${cleanLine}]]` : "";
       })
-      .join('\n');
+      .join("\n");
   });
 
-  // Auto-close any unclosed [[RED:... that might exist on lines
   const rawLines = normalized.split("\n");
   const preprocessedLines: string[] = [];
 
   for (const line of rawLines) {
     const trimmed = line.trim();
     if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
-      // Inside table row: normalize <br>- or <br>– 
       const cleanedCellBreaks = line
         .replace(/&lt;br\s*\/?&gt;\s*[-–]\s*/gi, "<br>– ")
         .replace(/<br\s*\/?>\s*[-–]\s*/gi, "<br>– ")
@@ -213,10 +274,9 @@ export function sanitizeLessonPlanOutput(text: string): string {
   }
 
   let processed = preprocessedLines
-    .map(line => {
+    .map((line) => {
       let l = line.trimEnd();
 
-      // Remove any stray <br> tags outside tables
       if (!l.startsWith("|") || !l.endsWith("|")) {
         l = l.replace(/&lt;br\s*\/?&gt;\s*[-–]?\s*/gi, " ");
         l = l.replace(/<br\s*\/?>\s*[-–]?\s*/gi, " ");
@@ -224,47 +284,42 @@ export function sanitizeLessonPlanOutput(text: string): string {
         l = l.replace(/<br\s*\/?>/gi, "");
       }
 
-      // 1. Remove leading '.' or '*' or '*.' before roman numerals, numbers, headings, letters, or activity names
-      l = l.replace(/^[\s*.]+(?=[I|V|XLCDM]+\b[\.\:\s])/i, "");
+      l = l.replace(/^[\s*.]+(?=[IVXLCDM]+\b[\.\:\s])/i, "");
       l = l.replace(/^[\s*.]+(?=\d+[\.\)\:\s])/i, "");
-      l = l.replace(/^[\s*.]+(?=[a-z]\)[\s])/i, "");
-      l = l.replace(/^[\s*.]+(?=(?:Hoạt động|HOẠT ĐỘNG|MỤC TIÊU|Mục tiêu|TIẾN TRÌNH|Tiến trình|THIẾT BỊ|Thiết bị|HỒ SƠ|Hồ sơ)[\s\:\.])/i, "");
+      l = l.replace(/^[\s*.]+(?=[a-z][\.\)]\s)/i, "");
+      l = l.replace(
+        /^[\s*.]+(?=(?:Hoạt động|HOẠT ĐỘNG|MỤC TIÊU|Mục tiêu|TIẾN TRÌNH|Tiến trình|THIẾT BỊ|Thiết bị|HỒ SƠ|Hồ sơ|PHỤ LỤC|Phụ lục|HƯỚNG DẪN|Hướng dẫn)[\s\:\.])/i,
+        ""
+      );
 
-      // 2. Remove markdown asterisks wrapper around headings like **I. MỤC TIÊU**
       l = l.replace(/^\*\*(.*?)\*\*$/, "$1");
-
-      // 3. Remove leading stray '*' or '.' before headings
       l = l.replace(/^[\s*.]+\*\*(.*?)\*\*/, "$1");
 
-      // 4. Remove '*' at the end of sentences or lines (e.g. "...thực hiện.*" -> "...thực hiện.")
       l = l.replace(/\*+\s*([.,;:!?])/g, "$1");
       l = l.replace(/([.,;:!?])\*+\s*$/g, "$1");
       l = l.replace(/\*+\s*$/g, "");
 
-      // 5. Clean inside [[RED:...]] tags so they are only red, not bold, and have no asterisks
       l = l.replace(/\[\[\s*red\s*:/gi, "[[RED:");
       l = l.replace(/\[\[RED:\s*\*\*(.*?)\*\*\s*\]\]/gi, "[[RED:$1]]");
       l = l.replace(/\[\[RED:\s*\*(.*?)\*\s*\]\]/gi, "[[RED:$1]]");
       l = l.replace(/\[\[RED:(.*?)\*+\]\]/gi, "[[RED:$1]]");
 
-      // Ensure any unclosed [[RED: in this line is closed
       const opens = (l.match(/\[\[RED:/g) || []).length;
       const closes = (l.match(/\]\]/g) || []).length;
       if (opens > closes) {
         l += "]]".repeat(opens - closes);
       }
 
-      // Sanitize unclosed inline math $ in line if there's an odd number of $
       const dollarCount = (l.match(/(?<!\\)\$/g) || []).length;
       if (dollarCount % 2 !== 0 && !l.includes("$$")) {
         l += "$";
       }
 
-      // 6. Fix arbitrary Title Case capitalization on common headings and steps
-      l = l.replace(/\bMục\s+Tiêu\b/gi, "Mục tiêu");
-      l = l.replace(/\bNội\s+Dung\b/gi, "Nội dung");
-      l = l.replace(/\bSản\s+Phẩm\b/gi, "Sản phẩm");
-      l = l.replace(/\bTổ\s+Chức\s+Thực\s+Hiện\b/gi, "Tổ chức thực hiện");
+      // Fix arbitrary Title Case capitalization
+      l = l.replace(/\bMục\s+Tiêu\b/g, "Mục tiêu");
+      l = l.replace(/\bNội\s+Dung\b/g, "Nội dung");
+      l = l.replace(/\bSản\s+Phẩm\b/g, "Sản phẩm");
+      l = l.replace(/\bTổ\s+Chức\s+Thực\s+Hiện\b/g, "Tổ chức thực hiện");
       l = l.replace(/\bVề\s+Kiến\s+Thức\b/gi, "Về kiến thức");
       l = l.replace(/\bVề\s+Năng\s+Lực\b/gi, "Về năng lực");
       l = l.replace(/\bVề\s+Phẩm\s+Chất\b/gi, "Về phẩm chất");
@@ -274,191 +329,245 @@ export function sanitizeLessonPlanOutput(text: string): string {
       l = l.replace(/\bThực\s+Hiện\s+Nhiệm\s+Vụ\b/gi, "Thực hiện nhiệm vụ");
       l = l.replace(/\bBáo\s+Cáo\s+Kết\s+Quả\b/gi, "Báo cáo kết quả");
       l = l.replace(/\bĐánh\s+Giá\s+Kết\s+Quả\b/gi, "Đánh giá kết quả");
-      l = l.replace(/\bSản\s+Phẩm\s+Dự\s+Kiến\b/gi, "Sản phẩm dự kiến");
-      l = l.replace(/\bHoạt\s+Động\s+Của\s+GV\s+Và\s+HS\b/gi, "Hoạt động của GV và HS");
-      l = l.replace(/\bTrình\s+Tự\s+Đọc\b/gi, "Trình tự đọc");
-      l = l.replace(/\bNội\s+Dung\s+Cần\s+Hiểu\b/gi, "Nội dung cần hiểu");
-      l = l.replace(/\bBảng\s+Đáp\s+Án\s+Trắc\s+Nhiệm\b/gi, "Bảng đáp án trắc nghiệm");
-      l = l.replace(/\bHệ\s+Thống\s+Câu\s+Hỏi\s+Trắc\s+Nhiệm\b/gi, "Hệ thống câu hỏi trắc nghiệm");
-      l = l.replace(/\bPhiếu\s+Học\s+Tập\b/gi, "Phiếu học tập");
-      l = l.replace(/\bHoạt\s+Động\s+Khởi\s+Động\b/gi, "Hoạt động khởi động");
-      l = l.replace(/\bHình\s+Thành\s+Kiến\s+Thức\s+Mới\b/gi, "Hình thành kiến thức mới");
-      l = l.replace(/\bHoạt\s+Động\s+Luyện\s+Tập\b/gi, "Hoạt động luyện tập");
-      l = l.replace(/\bHoạt\s+Động\s+Vận\s+Dụng\b/gi, "Hoạt động vận dụng");
-      l = l.replace(/\bKhung\s+Tên\b/g, "Khung tên");
-      l = l.replace(/\bBảng\s+Kê\b/g, "Bảng kê");
-      l = l.replace(/\bHình\s+Biểu\s+Diễn\b/g, "Hình biểu diễn");
-      l = l.replace(/\bKích\s+Thước\b/g, "Kích thước");
-      l = l.replace(/\bTổng\s+Hợp\b/g, "Tổng hợp");
-      l = l.replace(/\bYêu\s+Cầu\s+Cần\s+Đạt\b/gi, "Yêu cầu cần đạt");
-      l = l.replace(/\bThiết\s+Bị\s+Dạy\s+Học\b/gi, "Thiết bị dạy học");
-      l = l.replace(/\bHọc\s+Liệu\s+Số\b/gi, "Học liệu số");
+      l = l.replace(/\bSản\s+Phẩm\s+Dự\s+Kiến\b/g, "Sản phẩm dự kiến");
+      l = l.replace(/\bHoạt\s+Động\s+Của\s+GV\s+Và\s+HS\b/g, "Hoạt động của GV và HS");
+      l = l.replace(/\bPhiếu\s+Học\s+Tập\b/g, "Phiếu học tập");
+      l = l.replace(/\bHoạt\s+Động\s+Khởi\s+Động\b/g, "Hoạt động khởi động");
+      l = l.replace(/\bHình\s+Thành\s+Kiến\s+Thức\s+Mới\b/g, "Hình thành kiến thức mới");
+      l = l.replace(/\bHoạt\s+Động\s+Luyện\s+Tập\b/g, "Hoạt động luyện tập");
+      l = l.replace(/\bHoạt\s+Động\s+Vận\s+Dụng\b/g, "Hoạt động vận dụng");
+      l = l.replace(/\bYêu\s+Cầu\s+Cần\s+Đạt\b/g, "Yêu cầu cần đạt");
+      l = l.replace(/\bThiết\s+Bị\s+Dạy\s+Học\b/g, "Thiết bị dạy học");
+      l = l.replace(/\bHọc\s+Liệu\s+Số\b/g, "Học liệu số");
       l = l.replace(/\bNăng\s+Lực\s+Số\b/g, "Năng lực số");
-      l = l.replace(/\bNăng\s+Lực\s+Chung\b/gi, "Năng lực chung");
-      l = l.replace(/\bNăng\s+Lực\s+Công\s+Nghệ\b/gi, "Năng lực công nghệ");
-      l = l.replace(/\bNăng\s+Lực\s+Đặc\s+Thù\b/gi, "Năng lực đặc thù");
-      l = l.replace(/\bTự\s+Chủ\s+Và\s+Tự\s+Học\b/gi, "Tự chủ và tự học");
-      l = l.replace(/\bGiao\s+Tiếp\s+Và\s+Hợp\s+Tác\b/gi, "Giao tiếp và hợp tác");
-      l = l.replace(/\bGiải\s+Quyết\s+Vấn\s+Đề\s+Và\s+Sáng\s+Tạo\b/gi, "Giải quyết vấn đề và sáng tạo");
-      l = l.replace(/\bHướng\s+Dẫn\s+Tự\s+Học\b/gi, "Hướng dẫn tự học");
-      l = l.replace(/\bBản\s+Vẽ\s+Chi\s+Tiết\b/g, "Bản vẽ chi tiết");
-      l = l.replace(/\bBản\s+Vẽ\s+Lắp\b/g, "Bản vẽ lắp");
-      l = l.replace(/\bBản\s+Vẽ\s+Kĩ\s+Thuật\b/g, "Bản vẽ kĩ thuật");
-      l = l.replace(/\bBản\s+Vẽ\s+Nhà\b/g, "Bản vẽ nhà");
+      l = l.replace(/\bNăng\s+Lực\s+Chung\b/g, "Năng lực chung");
+      l = l.replace(/\bNăng\s+Lực\s+Đặc\s+Thù\b/g, "Năng lực đặc thù");
 
       return l;
     })
     .join("\n");
 
   // Safeguard: detect if "d) Tổ chức thực hiện:" of Hoạt động 2 was left empty before Hoạt động 3
-  const emptyHĐ2Regex = /(d\)\s*Tổ chức thực hiện:\s*)(?=(?:3\.\s*Hoạt động luyện tập|Hoạt động 3\s*:?\s*Luyện tập|###\s*3\.\s*Hoạt động luyện tập|###\s*Hoạt động 3|HOẠT ĐỘNG 3))/i;
+  const emptyHĐ2Regex =
+    /(d[.)]\s*Tổ chức thực hiện:\s*)(?=(?:3\.\s*Hoạt động luyện tập|Hoạt động 3\s*:?\s*Luyện tập|###\s*3\.\s*Hoạt động luyện tập|###\s*Hoạt động 3|HOẠT ĐỘNG 3))/i;
   if (emptyHĐ2Regex.test(processed)) {
-    const defaultHĐ2Implementation = `d) Tổ chức thực hiện:
-| Hoạt động của GV và HS | Sản phẩm dự kiến |
+    const defaultHĐ2Implementation = `d. Tổ chức thực hiện:
+| HOẠT ĐỘNG CỦA GIÁO VIÊN VÀ HỌC SINH | SẢN PHẨM (YÊU CẦU CẦN ĐẠT) |
 | --- | --- |
-| **Bước 1: GV chuyển giao nhiệm vụ:**<br>– GV yêu cầu học sinh nghiên cứu nội dung SGK, quan sát tranh ảnh/học liệu và thảo luận nhóm hoàn thành nhiệm vụ học tập.<br>[[RED:– GV trình chiếu học liệu số, phần mềm hoặc mô hình tương tác trên Smart TV/máy chiếu để học sinh quan sát và thao tác trực quan.]]<br><br>**Bước 2: HS thực hiện nhiệm vụ học tập:**<br>– Các nhóm học sinh đọc SGK, thảo luận tích cực và ghi nhận kết quả vào phiếu học tập.<br>[[RED:– HS sử dụng thiết bị số (máy tính, điện thoại, máy tính bảng) khai thác phần mềm chuyên dụng hoặc học liệu số để giải quyết nhiệm vụ.]]<br>– GV quan sát, theo dõi và hỗ trợ kịp thời.<br><br>**Bước 3: Báo cáo kết quả hoạt động, thảo luận:**<br>– Đại diện nhóm lên trình bày kết quả, các nhóm khác chú ý lắng nghe, đối chiếu kết quả, đặt câu hỏi phản biện và bổ sung ý kiến.<br><br>**Bước 4: Đánh giá kết quả thực hiện:**<br>– GV nhận xét tinh thần làm việc của các nhóm và chuẩn hóa kiến thức trọng tâm bài học.<br>[[RED:[Tích hợp năng lực số: HS sử dụng thành thạo công cụ số và thiết bị số để thu thập thông tin, mô phỏng và hoàn thành xuất sắc nhiệm vụ học tập.]]] | **SẢN PHẨM HỌC TẬP DỰ KIẾN:**<br>– Kết quả hoàn thành các câu hỏi, bài tập và phiếu học tập được chuẩn hóa đầy đủ và chính xác theo yêu cầu cần đạt. |
+| **Bước 1: Chuyển giao nhiệm vụ**<br>– GV yêu cầu học sinh nghiên cứu nội dung SGK, quan sát học liệu và thảo luận nhóm hoàn thành nhiệm vụ học tập.<br>[[RED:– GV trình chiếu học liệu số, phần mềm đồ họa/mô phỏng tương tác trên Smart TV/máy chiếu để học sinh quan sát và thao tác trực quan.]]<br><br>**Bước 2: Thực hiện nhiệm vụ**<br>– Các nhóm học sinh đọc SGK, thảo luận tích cực và ghi nhận kết quả vào phiếu học tập.<br>[[RED:– HS sử dụng thiết bị số khai thác phần mềm chuyên dụng hoặc học liệu số để kiểm chứng và giải quyết nhiệm vụ.]]<br><br>**Bước 3: Báo cáo, thảo luận**<br>– Đại diện nhóm trình bày kết quả, các nhóm khác lắng nghe, đối chiếu, đặt câu hỏi phản biện.<br><br>**Bước 4: Kết luận, nhận định**<br>– GV nhận xét tinh thần làm việc nhóm và chuẩn hóa kiến thức trọng tâm bài học.<br>[[RED:– Đánh giá kỹ năng thao tác công cụ số chính xác, hiệu quả của học sinh.]] | – Kết quả hoàn thành các câu hỏi, bài tập khám phá kiến thức và phiếu học tập được chuẩn hóa đầy đủ, chính xác theo yêu cầu cần đạt. |
 
 `;
     processed = processed.replace(emptyHĐ2Regex, defaultHĐ2Implementation);
   }
 
+  // Restore protected single-line <svg>...</svg> drawings
+  processed = processed.replace(/@@SVG_PROTECTED_(\d+)@@/g, (_, idxStr) => {
+    return protectedSvgs[Number(idxStr)] || "";
+  });
+
   return processed;
 }
 
 export async function handleGenerateLessonPlan(payload: GenerateLessonPlanPayload) {
-  // If userApiKey is provided, use user's personal quota
   const ai = getGeminiClient(payload.userApiKey);
+  const mathFormat: LessonMathFormat = payload.mathFormat === "latex" ? "latex" : "equation";
 
-  const competenciesText = payload.digitalCompetencies && payload.digitalCompetencies.length > 0
-    ? payload.digitalCompetencies
-        .map(c => `- MÃ CHỈ BÁO [${c.code}] (${c.domain || 'Năng lực số'})${c.isCustom ? ' [DO GIÁO VIÊN TỰ DÁN/ĐỊNH NGHĨA]' : ''}:
+  const selectedFont = payload.formattingOptions?.fontName || "Times New Roman";
+  const selectedPt = payload.formattingOptions?.fontSize
+    ? Math.round(payload.formattingOptions.fontSize / 2)
+    : 13;
+  const selectedMarginDesc =
+    payload.formattingOptions?.margins?.left === 720
+      ? "lề hẹp 1,27 cm các cạnh"
+      : "lề trái 2,5 cm, các lề còn lại 1,5 cm";
+
+  const mathAndFigurePromptBlock =
+    mathFormat === "latex"
+      ? LATEX_MODE_VERBATIM_REQUIREMENTS
+      : EQUATION_MODE_VERBATIM_REQUIREMENTS;
+
+  const mathTechnicalExecutionGuide =
+    mathFormat === "latex"
+      ? `HƯỚNG DẪN KỸ THUẬT XUẤT MÃ LATEX THÔ:
+- Toàn bộ 100% công thức, biến số ($x$, $y$), tọa độ ($O(0; 0)$, $A(0; 100)$, $B(20; 80)$, $(x_{0}; y_{0})$), trục tọa độ ($Oxy$, $Ox$, $Oy$), phương trình, bất phương trình, hàm số ($F(x, y) = 3{,}5x + 2y$) PHẢI đặt trong $...$ (nội dòng) hoặc $$...$$ (dòng riêng căn giữa).
+- Tuyệt đối KHÔNG dùng bất kỳ ký tự Unicode toán học nào (như ², ³, ₀, √, π, ≤, ≥, ≠, ∈, ℝ, ∞, →, ⇒, ⇔, Δ...). Phải dùng đúng lệnh LaTeX: x^{2}, x_{0}, \\frac{a}{b}, \\sqrt{x}, \\le, \\ge, \\neq, \\in, \\mathbb{R}, \\left( ... \\right), \\begin{cases} ... \\end{cases}, \\overrightarrow{AB}, \\widehat{ABC}, 30^\\circ, số thập phân viết 2{,}5 hoặc 3{,}5x.
+- Mũ và chỉ số dưới LUÔN LUÔN có ngoặc nhọn: viết x^{2}, a_{n}, x_{0}, y_{0} (không viết x^2 hay x_0).
+- Mỗi công thức $...$ hoặc $$...$$ phải nằm trọn trên MỘT DÒNG duy nhất, không xuống dòng bên trong công thức.`
+      : `HƯỚNG DẪN KỸ THUẬT BIÊN DỊCH 100% ĐỐI TƯỢNG EQUATION OMML WORD:
+- Để bộ biên dịch XML DOCX của hệ thống chuyển đổi tự động 100% biểu thức sang đối tượng Equation có cấu trúc OMML (<m:oMath>, <m:f>, <m:rad>, <m:sSup>, <m:sSub>, <m:eqArr>, <m:acc>) chỉnh sửa trực tiếp trong Microsoft Word, bạn BẮT BUỘC bao mọi công thức, biểu thức, biến số ($x$, $y$), số liệu mang ý nghĩa toán học, mặt phẳng/trục tọa độ ($Oxy$, $Ox$, $Oy$), tọa độ điểm ($O(0; 0)$, $A(0; 100)$, $B(20; 80)$, $(x_{0}; y_{0})$), biểu thức ($F(x, y) = 3{,}5x + 2y$) và hệ bất phương trình ($$\\begin{cases} x \\ge 0 \\\\ y \\ge 0 \\\\ x + y \\le 100 \\\\ 2x + y \\le 120 \\end{cases}$$) trong cặp dấu $...$ (nội dòng) hoặc $$...$$ (dòng riêng).
+- Tuyệt đối không để sót bất kỳ công thức hay biến số toán học nào ở dạng văn bản thường ngoài dấu $...$. Mỗi công thức viết gọn trên một dòng.`;
+
+  const svgFigureTechnicalGuide = `HƯỚNG DẪN KỸ THUẬT TẠO HÌNH VẼ TOÁN HỌC / HÌNH MINH HỌA TRỰC TIẾP (NÉT 1PT, MÀU BLACK):
+- Với MỌI hoạt động, ví dụ, bài tập, lời giải cần hình học, đồ thị hàm số, trục số, biểu diễn miền nghiệm (ví dụ: miền nghiệm tam giác $OAB$, miền nghiệm tứ giác $OABC$ tối ưu lợi nhuận, hình minh họa kiểm tra miền nghiệm...) hoặc hình vẽ khoa học: bạn PHẢI TẠO TRỰC TIẾP mã hình vẽ vector <svg> chính xác và đặt ngay tại đúng vị trí câu hỏi hoặc ngay bên trong ô cột "SẢN PHẨM (YÊU CẦU CẦN ĐẠT)" tương ứng!
+- Quy chuẩn bắt buộc cho mọi thẻ <svg>:
+  1. Thẻ mở chuẩn: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 270" width="360" height="270" data-caption="Hình ...: Tên chú thích hình rõ ràng">...</svg>
+  2. Nền trắng (#ffffff), độ dày MỌI nét vẽ đúng 1pt (stroke-width="1.33"), màu nét vẽ ĐEN TUYỆT ĐỐI (stroke="#000000").
+  3. Miền nghiệm đa giác (nếu có) tô màu xám nhạt đơn sắc fill="#e5e5e5" với đường biên stroke="#000000" stroke-width="1.33"; đường gióng tọa độ dùng nét đứt stroke="#000000" stroke-width="1.33" stroke-dasharray="4,3".
+  4. Tính toán chính xác tỉ lệ tọa độ toán học sang tọa độ SVG (lưu ý trục tung SVG hướng xuống dưới nên y_svg = y_goc - ty_le * y_toan). Vẽ trục Ox, Oy có mũi tên đen, gốc O, đánh dấu chấm tròn đen (<circle cx="..." cy="..." r="2.5" fill="#000000"/>) tại các đỉnh/điểm đặc biệt và ghi đầy đủ ký hiệu đỉnh, nhãn trục, số liệu tọa độ bằng <text x="..." y="..." font-family="Times New Roman, serif" font-size="13" fill="#000000">...</text> rõ nét, không chồng lấn.
+  5. QUAN TRỌNG KHI ĐẶT TRONG BẢNG MARKDOWN: Toàn bộ khối <svg ...>...</svg> PHẢI VIẾT LIỀN TRÊN CÙNG MỘT DÒNG (không chứa ký tự xuống dòng \\n và không chứa ký tự gạch đứng |), ngăn cách với văn bản trước/sau bằng thẻ <br> để bảng 2 cột hiển thị và xuất Word hoàn hảo 100%!`;
+
+  const competenciesText =
+    payload.digitalCompetencies && payload.digitalCompetencies.length > 0
+      ? payload.digitalCompetencies
+          .map(
+            (c) => `- MÃ CHỈ BÁO [${c.code}] (${c.domain || "Năng lực số"})${
+              c.isCustom ? " [DO GIÁO VIÊN TỰ DÁN/ĐỊNH NGHĨA]" : ""
+            }:
     + Yêu cầu cần đạt (YCCD): ${c.yccd || c.title || c.description}
-    + Diễn giải cụ thể: ${c.fullExplanation || c.description || c.title}${c.suggestedTools ? `\n    + Công cụ/thiết bị: ${c.suggestedTools}` : ''}`)
-        .join("\n\n")
-    : "Tự động phân bổ các chỉ báo năng lực số thiết yếu phù hợp nhất với bài học theo văn bản 3456/BGDĐT-GDPT.";
+    + Diễn giải cụ thể: ${c.fullExplanation || c.description || c.title}${
+              c.suggestedTools ? `\n    + Công cụ/thiết bị: ${c.suggestedTools}` : ""
+            }`
+          )
+          .join("\n\n")
+      : "Tự động phân bổ các chỉ báo năng lực số thiết yếu phù hợp nhất với bài học theo văn bản 3456/BGDĐT-GDPT.";
 
-  const teacherEqText = payload.teacherEquipment && payload.teacherEquipment.length > 0
-    ? payload.teacherEquipment.map(e => `- ${e.name}: ${e.quantity}${e.note ? ` (${e.note})` : ''}`).join("\n")
-    : "Laptop giáo viên, Smart TV / Máy chiếu, kết nối Internet tốc độ cao.";
+  const teacherEqText =
+    payload.teacherEquipment && payload.teacherEquipment.length > 0
+      ? payload.teacherEquipment
+          .map((e) => `- ${e.name}: ${e.quantity}${e.note ? ` (${e.note})` : ""}`)
+          .join("\n")
+      : "Laptop giáo viên, Smart TV / Máy chiếu, kết nối Internet tốc độ cao.";
 
-  const studentEqText = payload.studentEquipment && payload.studentEquipment.length > 0
-    ? payload.studentEquipment.map(e => `- ${e.name}: ${e.quantity}${e.note ? ` (${e.note})` : ''}`).join("\n")
-    : "Điện thoại thông minh / máy tính bảng theo nhóm, SGK, vở ghi.";
+  const studentEqText =
+    payload.studentEquipment && payload.studentEquipment.length > 0
+      ? payload.studentEquipment
+          .map((e) => `- ${e.name}: ${e.quantity}${e.note ? ` (${e.note})` : ""}`)
+          .join("\n")
+      : "Điện thoại thông minh / máy tính bảng theo nhóm, SGK, vở ghi.";
 
-  const toolsText = payload.digitalTools && payload.digitalTools.length > 0
-    ? payload.digitalTools.join(", ")
-    : "Padlet, Quizizz, Canva, Google Drive.";
-
-  const sgkImageListText = payload.sgkImages && payload.sgkImages.length > 0
-    ? payload.sgkImages.map((img, i) => `- Hình ảnh ${i + 1}: ${img.name || `Trang/Hình ảnh SGK ${i + 1}`}`).join("\n")
-    : "";
+  const toolsText =
+    payload.digitalTools && payload.digitalTools.length > 0
+      ? payload.digitalTools.join(", ")
+      : "Padlet, Quizizz, GeoGebra, Desmos, ChatGPT/Gemini, Canva.";
 
   const systemInstruction = `✦ R (Role - Vai trò) - Gán vai chuyên gia:
-Bạn là giáo viên chuyên môn môn ${payload.subject}, lớp ${payload.grade} có nhiều năm kinh nghiệm, am hiểu sâu sắc Chương trình GDPT 2018, Công văn 5512/BGDĐT-GDTrH và phương pháp dạy học phát triển phẩm chất, năng lực học sinh. Đồng thời, bạn là chuyên gia tích hợp công nghệ và năng lực số trong giáo dục.
+Bạn là giáo viên chuyên môn môn ${payload.subject}, ${payload.grade} có nhiều năm kinh nghiệm, am hiểu sâu sắc Chương trình GDPT 2018, Công văn 5512/BGDĐT-GDTrH, Văn bản 3456/BGDĐT-GDPT và phương pháp dạy học phát triển phẩm chất, năng lực học sinh.
 
 ✦ T (Task - Nhiệm vụ) - Chỉ định sản phẩm chính:
-Hãy biên soạn Kế hoạch bài dạy (Giáo án) hoàn chỉnh cho bài: "${payload.lessonTitle}" (Thời lượng: ${payload.lessonDuration}) và xuất thành file Word (.docx) dùng được ngay trên lớp theo chuẩn Công văn 5512/BGDĐT.
+Hãy biên soạn Kế hoạch bài dạy (Giáo án) tích hợp năng lực số hoàn chỉnh, sâu sắc, chi tiết từng lời giải/ví dụ/bài tập cho bài: "${payload.lessonTitle}" (Bộ sách: ${payload.curriculum || "Chương trình GDPT 2018"}, Thời gian thực hiện: ${payload.lessonDuration}) để xuất thành file Word (.docx) chuẩn mực dùng được ngay trên lớp.
 
-✦ C (Context - Bối cảnh & Căn cứ 4 Nguồn Tài liệu - Gemini Notebook):
-1. Nguồn 1: Mẫu giáo án / Bài soạn gốc (nếu có cung cấp, bạn PHẢI BẢO TOÀN NGUYÊN VĂN 100% cấu trúc, nội dung, bảng biểu, câu hỏi, bài tập, hình ảnh).
-2. Nguồn 2: Tài liệu SGK bài học (${payload.subject} ${payload.grade}): Dùng để đối chiếu thuật ngữ, số liệu, định nghĩa, bài tập, câu hỏi; đảm bảo bài soạn chuẩn xác 100% so với SGK. Tuyệt đối không chèn ảnh chụp trang SGK vào bài soạn.
-3. Nguồn 3: Phụ lục 1 (Kế hoạch dạy học của tổ chuyên môn): Tra cứu kỹ để lấy đúng Yêu cầu cần đạt (YCCD), phân bổ chi tiết thời lượng ${payload.lessonDuration} theo từng tiết (Tiết 1, Tiết 2, Tiết 3...), thiết bị dạy học, học liệu số và phòng học bộ môn.
-4. Nguồn 4: Phụ lục 3 (Kế hoạch giáo dục của giáo viên): Tra cứu các mã chỉ báo năng lực số và phương án tổ chức dạy học bằng công cụ số tương ứng.
-5. Cấu trúc tổ chức: Bám sát sách giáo khoa, tuân thủ cấu trúc 4 bước tổ chức hoạt động học theo Mẫu giáo án và Công văn 5512 (Bước 1: GV chuyển giao nhiệm vụ -> Bước 2: HS thực hiện nhiệm vụ -> Bước 3: Báo cáo, thảo luận -> Bước 4: Đánh giá, kết luận) dạng bảng 2 cột (| Hoạt động của GV và HS | Sản phẩm dự kiến |).
-6. Soạn đầy đủ tiến trình cả ${payload.lessonDuration}: Nếu thời lượng là nhiều tiết (ví dụ: 2 tiết, 3 tiết, 4 tiết...), bạn BẮT BUỘC phân chia rõ ràng ranh giới các tiết dạy: "TIẾT 1: ...", "TIẾT 2: ...", "TIẾT 3: ..." với các hoạt động tương ứng. Tuyệt đối KHÔNG được tóm tắt hay rút gọn!
-7. Trích cắt hình minh họa: Mọi thẻ [[IMAGE:...]] có sẵn trong bài soạn gốc hoặc SGK phải được giữ nguyên tại đúng vị trí cột/ô hoạt động tương ứng.
+✦ C (Context - Bối cảnh & Căn cứ 4 Nguồn Tài liệu & Cấu trúc Giáo án mẫu chuẩn):
+1. Nếu có Nguồn 1 (Bài soạn gốc của GV): Bảo toàn cấu trúc, nội dung cốt lõi, câu hỏi, bài tập và nâng cấp tích hợp năng lực số. Nếu chưa có bài soạn gốc, biên soạn đầy đủ theo đúng cấu trúc chuẩn của Giáo án mẫu tích hợp năng lực số CV 5512:
+   - Phần tiêu đề đầu bài:
+     # KẾ HOẠCH BÀI DẠY
+     # ${payload.lessonTitle.toUpperCase()}
+     Môn học/Hoạt động giáo dục: ${payload.subject} – ${payload.grade} (Bộ sách ${payload.curriculum || "Chương trình GDPT 2018"})
+     Thời gian thực hiện: ${payload.lessonDuration}
+   - I. MỤC TIÊU:
+     1. Kiến thức: (Nêu đầy đủ yêu cầu cần đạt kiến thức chuẩn SGK & Phụ lục 1)
+     2. Năng lực:
+        - Năng lực chung: (Tự chủ và tự học; Giao tiếp và hợp tác; Giải quyết vấn đề và sáng tạo)
+        - Năng lực đặc thù / Năng lực riêng bộ môn: (Nêu cụ thể gắn với bài học)
+        - Năng lực số (NLS): [[RED:Liệt kê đầy đủ từng mã chỉ báo đã chọn (ví dụ 1.1.NC1b, 2.1.NC1a, 5.2.NC1b, 6.2.NC1a...) kèm diễn giải cụ thể sát nội dung bài học]]
+     3. Phẩm chất: (Chăm chỉ, Trung thực, Trách nhiệm)
+   - II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU:
+     1. Đối với giáo viên: (Phản ánh chính xác danh mục thiết bị GV và phần mềm số đã chọn, bôi đỏ [[RED:...]] các học liệu/phần mềm số)
+     2. Đối với học sinh: (Phản ánh chính xác danh mục thiết bị HS chuẩn bị, bôi đỏ [[RED:...]] các thiết bị/ứng dụng số)
+   - III. TIẾN TRÌNH DẠY HỌC:
+     * Mở đầu mục III bằng bảng hoặc danh sách **Phân bố thời lượng dạy học (${payload.lessonDuration}):** phân chia rõ từng tiết (Tiết 1, Tiết 2, Tiết 3... ứng với hoạt động nào, bao nhiêu phút).
+     * Soạn đầy đủ, chi tiết toàn bộ 4 chuỗi hoạt động:
+       + HOẠT ĐỘNG 1: HOẠT ĐỘNG KHỞI ĐỘNG (... phút)
+       + HOẠT ĐỘNG 2: HÌNH THÀNH KIẾN THỨC MỚI (... phút) -> Chia nhỏ mạch lạc thành Hoạt động 2.1, Hoạt động 2.2, Hoạt động 2.3... theo đúng các mục kiến thức trong SGK!
+       + HOẠT ĐỘNG 3: LUYỆN TẬP (... phút) (Trắc nghiệm tương tác trên công cụ số + lời giải chi tiết các bài tập SGK)
+       + HOẠT ĐỘNG 4: VẬN DỤNG (... phút) (Giải quyết bài toán thực tiễn có lời giải, kết luận số liệu trọn vẹn)
+     * Mỗi hoạt động (kể cả từng Hoạt động 2.1, 2.2, 2.3...) ĐỀU PHẢI CÓ ĐỦ 4 MỤC:
+       a. Mục tiêu: ...
+       b. Nội dung: ... (Ghi rõ mã chỉ báo NLS tích hợp tại hoạt động đó trong thẻ [[RED:...]])
+       c. Sản phẩm: ...
+       d. Tổ chức thực hiện:
+       Bảng 2 cột Markdown chuẩn:
+       | HOẠT ĐỘNG CỦA GIÁO VIÊN VÀ HỌC SINH | SẢN PHẨM (YÊU CẦU CẦN ĐẠT) |
+       | --- | --- |
+       Bên cột trái trình bày rõ đủ **Bước 1: Chuyển giao nhiệm vụ**, **Bước 2: Thực hiện nhiệm vụ**, **Bước 3: Báo cáo, thảo luận**, **Bước 4: Kết luận, nhận định**. Bên cột phải trình bày ĐẦY ĐỦ định nghĩa, quy tắc, lời giải chi tiết từng ví dụ/luyện tập/bài tập SGK và CHÈN TRỰC TIẾP hình vẽ <svg> minh họa chuẩn toán học ngay trong cột sản phẩm!
+   - IV. HƯỚNG DẪN VỀ NHÀ (... phút):
+     1. Ôn tập kiến thức
+     2. Bài tập về nhà
+     3. Chuẩn bị bài mới
+   - V. PHỤ LỤC:
+     1. Các Phiếu học tập (chi tiết từng phiếu sử dụng trong bài)
+     2. Bảng tiêu chí đánh giá (Rubric đánh giá hoạt động nhóm có tiêu chí ứng dụng công nghệ số [[RED:...]])
 
-✦ F / O (Format / Output Format - Định dạng đầu ra) - Quy chuẩn kỹ thuật & hiển thị:
-1. TÍCH HỢP NĂNG LỰC SỐ:
-   - Tích hợp logic, bài bản, gắn liền với thiết bị số và công cụ số thực tế (như Quizizz, Padlet, GeoGebra, Desmos, Canva, Google Drive, AI tools...).
-   - YÊU CẦU ĐẶC BIỆT: Toàn bộ nội dung liên quan trực tiếp đến năng lực số (câu từ, hướng dẫn, thao tác học sinh/giáo viên và mã chỉ báo) PHẢI ĐƯỢC TÔ CHỮ MÀU ĐỎ bằng cú pháp [[RED:...]] (chữ thường, không in đậm, đóng ngoặc ]] đầy đủ).
-   - PHỤ LỤC BẮT BUỘC Ở CUỐI GIÁO ÁN: Cuối giáo án PHẢI tạo mục "## IV. PHỤ LỤC" gồm:
-     * 1. CÁC PHIẾU HỌC TẬP: Thiết kế đầy đủ, chi tiết toàn bộ các Phiếu học tập (Phiếu 1, Phiếu 2, Phiếu 3...) đã sử dụng trong các hoạt động học của bài dạy. Mỗi phiếu có bảng biểu rõ ràng gồm: Tên phiếu, Mục tiêu, Tên nhóm/HS, Nhiệm vụ/câu hỏi/bài tập, và Phần dòng kẻ/khoảng trống dự kiến cho học sinh làm bài.
-     * 2. BẢNG TIÊU CHÍ ĐÁNH GIÁ (RUBRIC ĐÁNH GIÁ HOẠT ĐỘNG NHÓM): Bảng tiêu chí chuẩn mực dạng Markdown gồm các cột: Tiêu chí đánh giá, Mức 1 (Chưa đạt), Mức 2 (Đạt), Mức 3 (Tốt), Điểm tối đa. Bao gồm tiêu chí về tinh thần hợp tác, ứng dụng công cụ số [[RED:...]], chất lượng sản phẩm và kỹ năng thuyết trình.
-2. CHUẨN HÓA CÔNG THỨC TOÁN HỌC / KÝ HIỆU KHOA HỌC:
-   - 100% công thức, biểu thức, ký hiệu và số liệu mang ý nghĩa toán học/khoa học trong toàn bộ giáo án PHẢI ĐƯỢC VIẾT DƯỚI DẠNG CÚ PHÁP LATEX đặt trong '$ ... $' (trong dòng) hoặc '$$ ... $$' (dòng riêng).
-   - Áp dụng cho MỌI phần: kiến thức, ví dụ, bài tập, lời giải, đáp án, bảng biểu, tọa độ, hệ bất phương trình/hệ phương trình và các cột hoạt động.
-   - Ví dụ:
-     * Hệ bất phương trình: '$$\\begin{cases} 2x + y \\le 4 \\\\ x - y > 1 \\\\ x \\ge 0 \\end{cases}$$'
-     * Tọa độ: '$A(0; 4)$', '$B(1; 2)$', '$C(3; 0)$'
-     * Biểu thức: '$F(x, y) = 2x + 3y$', '$x + y \\ge 2$'
-     * Ký hiệu: '$\\Delta$', '$\\le$', '$\\ge$', '$\\neq$', '$\\in$', '$\\subset$', '$\\cup$', '$\\cap$'
-   - Tuyệt đối KHÔNG viết công thức bằng văn bản thường không có dấu $, không dùng ký tự giả lập hoặc hình ảnh.
-3. QUY CHUẨN TRANG IN & CHÍNH TẢ TIẾNG VIỆT:
-   - Khổ A4; lề trái 2,5 cm, các lề còn lại 1,5 cm; Font Times New Roman, cỡ 13, giãn dòng đơn.
-   - Tuyệt đối KHÔNG sử dụng chú thích ngoặc vuông dạng [...] hay [i].
-   - Viết hoa đúng ngữ pháp tiếng Việt: Chỉ viết hoa chữ cái đầu câu/đầu tiêu đề và các danh từ riêng theo đúng ngữ pháp chính tả tiếng Việt. Tuyệt đối KHÔNG viết hoa tùy tiện từng chữ (Title Case).
-   - Tuyệt đối KHÔNG dùng ký tự '*' hay dấu '.' trước các đề mục. Không dùng '*' ở cuối câu.
-   - Tuyệt đối KHÔNG dùng thẻ HTML <br> hay <br>- ở ngoài bảng. Xuống dòng bằng phím Enter bình thường.
-   - Tuyệt đối KHÔNG để sót các ký hiệu thô rác: '<br>-', '<br>', '&lt;br&gt;', '[[RED:', ']]'.`;
+✦ F / O (Format / Output Format - Quy chuẩn bắt buộc):
+1. TÔ ĐỎ NĂNG LỰC SỐ: Toàn bộ 100% nội dung liên quan trực tiếp đến năng lực số (mã chỉ báo, công cụ số, thao tác số của GV & HS) PHẢI bọc trong [[RED:...]] (chữ thường, không in đậm, đóng ]] đầy đủ).
+2. ${mathAndFigurePromptBlock}
+
+${mathTechnicalExecutionGuide}
+
+${svgFigureTechnicalGuide}
+
+3. QUY CHUẨN TRANG IN & CHÍNH TẢ:
+   - Khổ A4; ${selectedMarginDesc}; Font ${selectedFont}, cỡ ${selectedPt}pt.
+   - Tuyệt đối KHÔNG sử dụng chú thích ngoặc vuông rác dạng [...] hay [i].
+   - Viết hoa đúng ngữ pháp tiếng Việt, không viết hoa tùy tiện từng từ (Title Case).
+   - Không dùng thẻ <br> ở ngoài bảng; bên trong ô bảng dùng <br> để xuống dòng giữa các ý.`;
 
   const promptParts: any[] = [];
 
-  // Add textbook photos or PDF files if uploaded (strictly for reference & verification)
   if (payload.sgkImages && payload.sgkImages.length > 0) {
     for (const img of payload.sgkImages) {
       const isPdf = img.mimeType === "application/pdf" || (img.data && img.data.startsWith("JVBER"));
       promptParts.push({
         inlineData: {
-          mimeType: isPdf ? "application/pdf" : (img.mimeType || "image/jpeg"),
+          mimeType: isPdf ? "application/pdf" : img.mimeType || "image/jpeg",
           data: img.data,
         },
       });
     }
   }
 
-  const promptText = `
-✦ R (Role - Vai trò):
-Bạn là giáo viên chuyên môn ${payload.subject} ${payload.grade} có nhiều năm kinh nghiệm, am hiểu sâu sắc Chương trình GDPT 2018 (CV 5512/BGDĐT-GDTrH).
+  const promptText = `Hãy biên soạn Kế hoạch bài dạy tích hợp năng lực số hoàn chỉnh đáp ứng chính xác MỌI thông số do giáo viên đã tích chọn dưới đây:
 
-✦ T (Task - Nhiệm vụ):
-Biên soạn Kế hoạch bài dạy (Giáo án) hoàn chỉnh cho bài: "${payload.lessonTitle}" (Thời lượng: ${payload.lessonDuration}) và xuất thành file Word (.docx) dùng được ngay trên lớp.
-
-✦ C (Context - Bối cảnh & Căn cứ 4 Nguồn Tài liệu):
-${payload.userEmail ? `(Giáo viên thực hiện: ${payload.userName || 'Thầy/Cô'} - Gmail: ${payload.userEmail})` : ''}
-
-1. THÔNG TIN BÀI HỌC:
+1. THÔNG TIN BÀI HỌC ĐÃ CHỌN:
 - Môn học / Hoạt động giáo dục: ${payload.subject}
 - Khối lớp: ${payload.grade}
 - Tên bài dạy: ${payload.lessonTitle}
-- Thời lượng: ${payload.lessonDuration}
+- Thời lượng giảng dạy: ${payload.lessonDuration}
 - Bộ sách giáo khoa: ${payload.curriculum || "Chương trình GDPT 2018"}
+- Chế độ công thức toán & hình vẽ đã chọn: ${
+    mathFormat === "latex"
+      ? "LATEX (100% mã LaTeX thô $...$ và $$...$$, không OMML, không ký tự Unicode toán, kèm hình vẽ 1pt black)"
+      : "EQUATION (100% đối tượng Equation OMML chỉnh sửa được trong Word, kèm hình vẽ 1pt black)"
+  }
+- Định dạng trang in đã chọn: Font ${selectedFont}, cỡ chữ ${selectedPt}pt, ${selectedMarginDesc}
+${payload.userEmail ? `- Giáo viên thực hiện: ${payload.userName || "Thầy/Cô"} (${payload.userEmail})` : ""}
 
 2. CĂN CỨ PHỤ LỤC 1 (KẾ HOẠCH DẠY HỌC CỦA TỔ CHUYÊN MÔN):
-${payload.phuLuc1Text && payload.phuLuc1Text.trim() ? payload.phuLuc1Text : "(Sử dụng Yêu cầu cần đạt chuẩn, phân bổ số tiết theo từng tiết, thiết bị dạy học, học liệu số và phòng học theo quy định bộ môn)"}
+${
+  payload.phuLuc1Text && payload.phuLuc1Text.trim()
+    ? payload.phuLuc1Text
+    : "(Áp dụng Yêu cầu cần đạt chuẩn Chương trình GDPT 2018 của bài học, phân bổ chi tiết thời lượng từng tiết và hoạt động)"
+}
 
-3. CĂN CỨ PHỤ LỤC 3 (KẾ HOẠCH GIÁO DỤC CỦA GIÁO VIÊN VỀ NĂNG LỰC SỐ) & DANH SÁCH CHỈ BÁO NLS:
-${payload.phuLuc3Text && payload.phuLuc3Text.trim() ? `* Trích từ Phụ lục 3 của giáo viên:\n${payload.phuLuc3Text}\n` : ''}
-* Danh sách chỉ báo năng lực số đăng ký tích hợp:
+3. CĂN CỨ PHỤ LỤC 3 & CÁC MÃ CHỈ BÁO NĂNG LỰC SỐ ĐÃ TÍCH CHỌN (BẮT BUỘC TÍCH HỢP ĐẦY ĐỦ 100% CÁC MÃ NÀY):
+${payload.phuLuc3Text && payload.phuLuc3Text.trim() ? `* Trích từ Phụ lục 3:\n${payload.phuLuc3Text}\n` : ""}
+* Danh sách mã chỉ báo năng lực số phải xuất hiện đầy đủ ở Mục tiêu (I.2) và phân bổ cụ thể vào các Hoạt động học (III):
 ${competenciesText}
 
-4. HỌC LIỆU SỐ, THIẾT BỊ SỐ & PHÒNG HỌC ĐÁP ỨNG ĐƯỢC:
-* Giáo viên chuẩn bị:
+4. THIẾT BỊ DẠY HỌC & PHẦN MỀM SỐ ĐÃ TÍCH CHỌN (PHẢI ĐƯA ĐẦY ĐỦ VÀO MỤC II VÀ CÁC BƯỚC HOẠT ĐỘNG):
+* Thiết bị Giáo viên:
 ${teacherEqText}
-
-* Học sinh chuẩn bị (theo nhóm / cá nhân):
+* Thiết bị Học sinh:
 ${studentEqText}
-
-* Công cụ / Ứng dụng số khai thác:
+* Phần mềm / Nền tảng số khai thác:
 ${toolsText}
 
-${payload.sgkImages && payload.sgkImages.length > 0 ? `5. TÀI LIỆU NỘI DUNG BÀI HỌC SGK ĐÍNH KÈM (ẢNH CHỤP HOẶC TỆP PDF - ${payload.sgkImages.length} tài liệu):
-=> Bám sát toàn bộ thuật ngữ, nội dung cốt lõi, bảng số liệu, hình minh họa và câu hỏi trong SGK để biên soạn giáo án chuẩn xác 100%, không bị sai lệch so với SGK.
-=> CHÈN HÌNH MINH HỌA: Nếu tài liệu đính kèm có hình minh họa, hình vẽ hình học, đồ thị tọa độ hoặc sơ đồ trực quan dùng trong các hoạt động học, hãy chèn thẻ [[IMAGE:1:Hình 1. Chú thích hình]], [[IMAGE:2:Hình 2. Chú thích hình]]... (với số 1, 2... là thứ tự tài liệu đính kèm) vào đúng vị trí hoặc cột bảng của hoạt động tương ứng để hệ thống xuất Word nhúng ảnh thực tế.\n` : ''}
-
+${
+  payload.sgkImages && payload.sgkImages.length > 0
+    ? `5. TÀI LIỆU SGK ĐÍNH KÈM (${payload.sgkImages.length} tài liệu ảnh/PDF):
+- Bám sát 100% định nghĩa, ví dụ, số liệu, hình vẽ và bài tập trong tài liệu SGK đính kèm.
+- Có thể dùng [[IMAGE:1:Chú thích]] cho ảnh chụp SGK đính kèm HOẶC vẽ trực tiếp hình toán học/đồ thị bằng <svg> nét 1pt màu black rõ nét.\n`
+    : ""
+}
 6. BÀI SOẠN MẪU / GIÁO ÁN GỐC CỦA GIÁO VIÊN:
-${payload.oldLessonPlanText && payload.oldLessonPlanText.trim() ? payload.oldLessonPlanText : "(Chưa có văn bản bài soạn cũ, hãy xây dựng bài dạy mới hoàn chỉnh theo chuẩn CV 5512 với đầy đủ tiến trình các tiết và mục Phụ lục ở cuối)"}
+${
+  payload.oldLessonPlanText && payload.oldLessonPlanText.trim()
+    ? payload.oldLessonPlanText
+    : "(Biên soạn mới hoàn chỉnh theo chuẩn Giáo án mẫu tích hợp năng lực số Công văn 5512 với đầy đủ lời giải chi tiết, hình vẽ <svg> 1pt black trong cột Sản phẩm, Hướng dẫn về nhà và Phụ lục Phiếu học tập + Rubric)"
+}
 
-${payload.customNote ? `7. GHI CHÚ THÊM CỦA GIÁO VIÊN:\n${payload.customNote}\n` : ''}
-
-✦ F / O (Format / Output Format - Quy chuẩn kỹ thuật & hiển thị):
-- Soạn đầy đủ tiến trình cả ${payload.lessonDuration} (nếu từ 2 tiết trở lên, phân bổ rõ ràng ranh giới TIẾT 1, TIẾT 2, TIẾT 3... với các hoạt động tương ứng).
-- Mỗi hoạt động đều có Bảng 2 cột (| Hoạt động của GV và HS | Sản phẩm dự kiến |) đủ 4 bước (Bước 1, Bước 2, Bước 3, Bước 4).
-- Bôi đỏ 100% các nội dung năng lực số bằng [[RED:...]] (chữ thường, không in đậm).
-- Khi có tài liệu SGK đính kèm, chèn thẻ [[IMAGE:x:Tên hình]] vào đúng hoạt động học để giáo án có hình ảnh minh họa trực quan.
-- Bắt buộc tạo mục ## IV. PHỤ LỤC ở cuối bài gồm: Các Phiếu học tập số 1, 2, 3... và Bảng Rubric đánh giá hoạt động nhóm.
-- 100% công thức, biểu thức, tọa độ, hệ bất phương trình/hệ phương trình phải viết dạng LaTeX trong $...$ hoặc $$...$$.
-- Khổ A4, lề trái 2.5cm, các lề còn lại 1.5cm, Times New Roman 13pt. Không ký tự rác [...] hay [i].`;
+${payload.customNote ? `7. GHI CHÚ RIÊNG CỦA GIÁO VIÊN:\n${payload.customNote}\n` : ""}
+8. YÊU CẦU TUYỆT ĐỐI VỀ CÔNG THỨC TOÁN HỌC VÀ HÌNH VẼ (TUÂN THỦ 100%):
+${mathAndFigurePromptBlock}`;
 
   promptParts.push({ text: promptText });
 
@@ -474,7 +583,7 @@ ${payload.customNote ? `7. GHI CHÚ THÊM CỦA GIÁO VIÊN:\n${payload.customNo
   });
 
   const raw = response.text || "";
-  const cleaned = sanitizeLessonPlanOutput(raw);
+  const cleaned = sanitizeLessonPlanOutput(raw, mathFormat);
 
   return {
     rawContent: cleaned,
@@ -498,13 +607,10 @@ Hãy trích xuất TOÀN BỘ 100% NỘI DUNG của tệp PDF Kế hoạch bài 
 1. TUYỆT ĐỐI KHÔNG ĐƯỢC TÓM TẮT, KHÔNG RÚT GỌN, KHÔNG BỎ SÓT BẤT KỲ CÂU CHỮ, ĐOẠN VĂN HAY CÂU HỎI NÀO.
 2. BẢO TỒN NGUYÊN VẸN CẤU TRÚC CHIA CỘT DƯỚI DẠNG BẢNG MARKDOWN (| Cột 1 | Cột 2 |):
    - Bảng 2 cột: | HOẠT ĐỘNG CỦA GV VÀ HS | SẢN PHẨM DỰ KIẾN |
-     (Chứa đầy đủ: Bước 1: GV chuyển giao nhiệm vụ, Bước 2: HS thực hiện, Bước 3: Báo cáo thảo luận, Bước 4: Đánh giá; và cột sản phẩm tương ứng. Các đoạn văn bên trong ô cách nhau bằng thẻ <br>).
-   - Bảng 3 cột: | Trình tự đọc | Nội dung | Thông tin chi tiết ... |
-   - Bảng đáp án trắc nghiệm: | Câu 1 | Câu 2 | Câu 3 | Câu 4 | Câu 5 |
-3. Toàn bộ các câu hỏi trắc nghiệm (ví dụ: Câu 1, Câu 2, Câu 3, Câu 4, Câu 5 kèm đầy đủ 4 phương án A, B, C, D) phải được giữ nguyên từng chữ.
-4. Ở các vị trí có tranh ảnh/sơ đồ/bản vẽ (ví dụ: Hình 3.1, Hình 3.2, Hình 3.3, Hình 3.6...), đặt thẻ:
-   [[IMAGE:hinh_x:Hình x. Chú thích hình ảnh]]
-5. Trả về toàn văn bản Markdown hoàn chỉnh từ trang đầu đến trang cuối cùng.`
+     (Chứa đầy đủ: Bước 1, Bước 2, Bước 3, Bước 4; và cột sản phẩm tương ứng. Các đoạn văn bên trong ô cách nhau bằng thẻ <br>).
+3. Toàn bộ các công thức toán học trích xuất sang LaTeX chuẩn trong $...$ hoặc $$...$$.
+4. Ở các vị trí có tranh ảnh/sơ đồ/bản vẽ, đặt thẻ: [[IMAGE:hinh_x:Hình x. Chú thích hình ảnh]]
+5. Trả về toàn văn bản Markdown hoàn chỉnh từ trang đầu đến trang cuối cùng.`,
         },
       ],
     },
@@ -530,7 +636,7 @@ export async function handleAnalyzeSgk(
     const isPdf = img.mimeType === "application/pdf" || (img.data && img.data.startsWith("JVBER"));
     promptParts.push({
       inlineData: {
-        mimeType: isPdf ? "application/pdf" : (img.mimeType || "image/jpeg"),
+        mimeType: isPdf ? "application/pdf" : img.mimeType || "image/jpeg",
         data: img.data,
       },
     });
@@ -542,10 +648,10 @@ Hãy phân tích kỹ các tài liệu SGK đính kèm (bao gồm ảnh chụp v
 1. Tên bài học chính xác và bộ sách giáo khoa tương ứng (Kết nối tri thức, Chân trời sáng tạo, Cánh diều...).
 2. Yêu cầu cần đạt / Mục tiêu cốt lõi của bài học ghi trong SGK.
 3. Thuật ngữ, khái niệm, công thức toán học/khoa học và nội dung cốt lõi của bài học.
-4. Danh sách các hình minh họa, biểu đồ, bản vẽ, bảng số liệu, thí nghiệm hoặc hoạt động khám phá trong SGK.
+4. Danh sách các hình minh họa, biểu đồ, đồ thị miền nghiệm, bản vẽ, bảng số liệu, thí nghiệm hoặc hoạt động khám phá trong SGK.
 5. Tiến trình hoạt động học trong SGK (Khởi động, Khám phá/Hình thành kiến thức, Luyện tập, Vận dụng).
 6. Đề xuất các hoạt động tích hợp năng lực số (NLS) phù hợp nhất với nội dung bài học (ví dụ: công cụ tìm kiếm dữ liệu, GeoGebra/Desmos, Quizizz/Padlet, ứng dụng AI...).
-Trả về ngắn gọn, sư phạm, chuyên nghiệp bằng tiếng Việt để giáo viên tham khảo và tích hợp vào giáo án.`
+Trả về ngắn gọn, sư phạm, chuyên nghiệp bằng tiếng Việt để giáo viên tham khảo và tích hợp vào giáo án.`,
   });
 
   const response = await callGeminiWithFallback(ai, {
