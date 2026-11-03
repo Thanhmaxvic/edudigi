@@ -16,17 +16,22 @@ import {
   cleanLineFormatting,
   preprocessLessonPlanContent,
   splitMarkdownTableRow,
+  stripHeadingHashes,
+  verifyGeneratedDocxXml,
   FormattingOptions,
   DocxVerificationReport,
 } from '../utils/docxExport';
 import {
   renderLatexToHtml,
-  latexToUnicode,
+  cleanPlainProseForWord,
+  ensureMathAndTagSpacing,
   autoWrapUnwrappedMathForEquation,
   MathOutputFormat,
 } from '../utils/mathConverter';
 import { extractInlineVisuals } from '../utils/mathSvgRenderer';
 import { injectIntoDocxWithReport } from '../utils/docxInjector';
+import { DocxTemplateProfile } from '../utils/fileExtractor';
+import { LessonPlanGenerationMode } from './SourceMaterialUploader';
 import FileSaver from 'file-saver';
 const saveAs = (FileSaver as any).saveAs || FileSaver;
 
@@ -36,6 +41,8 @@ export interface SgkImagePreviewItem {
   mimeType: string;
   data: string;
   previewUrl: string;
+  width?: number;
+  height?: number;
 }
 
 interface LessonPlanPreviewProps {
@@ -47,6 +54,9 @@ interface LessonPlanPreviewProps {
   isGenerating?: boolean;
   sgkImages?: SgkImagePreviewItem[];
   originalDocxBuffer?: ArrayBuffer | null;
+  templateProfile?: DocxTemplateProfile | null;
+  planMode?: LessonPlanGenerationMode;
+  preserveOriginalHeader?: boolean;
   formattingOptions?: FormattingOptions;
   onChangeFormattingOptions?: (opts: FormattingOptions) => void;
   lastVerification?: DocxVerificationReport | null;
@@ -61,6 +71,9 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
   grade,
   sgkImages = [],
   originalDocxBuffer = null,
+  templateProfile = null,
+  planMode = 'new_cv5512',
+  preserveOriginalHeader = false,
   formattingOptions,
   onChangeFormattingOptions,
   lastVerification = null,
@@ -76,7 +89,9 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
     formattingOptions?.mathFormat === 'latex' ? 'latex' : 'equation';
   const activeFontName = formattingOptions?.fontName || 'Times New Roman';
   const activeFontPt = (formattingOptions?.fontSize || 26) / 2;
-  const activeLineHeight = Number((((formattingOptions?.lineSpacing || 240) / 240) * 1.25).toFixed(2));
+  const activeLineHeight = Number(
+    (((formattingOptions?.lineSpacing || 240) / 240) * 1.25).toFixed(2)
+  );
   const activeParaAfterPt = (formattingOptions?.paraSpacing ?? 120) / 20;
   const activePageNumber = formattingOptions?.pageNumber || 'bottom-center';
   const isNarrowMargin = formattingOptions?.margins?.left === 720;
@@ -91,6 +106,10 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
   const sgkTagCount = (contentWithTokens.match(/\[\[IMAGE:[^\]]+\]\]/g) || []).length;
   const generatedSvgCount = visuals.size;
   const totalVisualCount = sgkTagCount + generatedSvgCount;
+
+  // In 'preserve_old' mode with an uploaded .docx file and red NLS blocks, primary export preserves 100% of original .docx!
+  const preferDirectDocxInjection =
+    planMode === 'preserve_old' && Boolean(originalDocxBuffer) && redMatchCount > 0;
 
   const handleSwitchMathFormat = (mode: MathOutputFormat) => {
     if (!onChangeFormattingOptions || !formattingOptions) return;
@@ -114,7 +133,7 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
     setTimeout(() => setIsCopied(false), 2500);
   };
 
-  const handleExportWord = async () => {
+  const handleExportRebuiltWord = async () => {
     try {
       setIsExporting(true);
       const report = await exportLessonPlanToDocx(content, {
@@ -123,6 +142,8 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
         grade,
         images: sgkImages,
         formatting: formattingOptions,
+        templateProfile,
+        preserveOriginalHeader,
       });
       setLocalVerification(report);
       if (onVerificationReport) {
@@ -140,12 +161,26 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
     if (!originalDocxBuffer) return;
     try {
       setIsExporting(true);
-      const { blob, report } = await injectIntoDocxWithReport(originalDocxBuffer, content);
-      saveAs(blob, `[NangLucSo_Goc] ${lessonTitle || 'GiaoAn'}.docx`);
-      if (report.appended > 0) {
+      const { blob, report } = await injectIntoDocxWithReport(originalDocxBuffer, content, {
+        mathFormat: activeMathFormat,
+      });
+      const xmlVerification = await verifyGeneratedDocxXml(blob, activeMathFormat);
+      setLocalVerification(xmlVerification);
+      if (onVerificationReport) {
+        onVerificationReport(xmlVerification);
+      }
+
+      const safeTitle = (lessonTitle || 'GiaoAn')
+        .replace(/[<>:"/\\|?*]+/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 70);
+      const modeTag = activeMathFormat === 'latex' ? 'LaTeX' : 'Equation';
+      saveAs(blob, `[NangLucSo_Goc_${modeTag}] ${safeTitle}.docx`);
+
+      if (report.appended > 0 && report.injected === 0) {
         alert(
-          `Đã chèn ${report.injected}/${report.total} nội dung năng lực số vào đúng vị trí trong file gốc.\n` +
-            `${report.appended} nội dung chưa xác định được vị trí đã được đưa vào PHỤ LỤC cuối giáo án.`
+          `Đã giữ nguyên 100% định dạng file gốc và bổ sung ${report.appended} mục năng lực số vào cuối giáo án.`
         );
       }
     } catch (err: any) {
@@ -156,13 +191,21 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
     }
   };
 
+  const handlePrimaryExportWord = async () => {
+    if (preferDirectDocxInjection) {
+      await handleExportInjectedWord();
+    } else {
+      await handleExportRebuiltWord();
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
 
   const findMatchingImage = (idOrIndex: string) => {
-    const clean = idOrIndex.trim();
-    const byId = sgkImages.find((img) => img.id === clean);
+    const clean = idOrIndex.trim().toLowerCase();
+    const byId = sgkImages.find((img) => img.id && img.id.toLowerCase() === clean);
     if (byId) return byId;
 
     const num = parseInt(clean, 10);
@@ -170,271 +213,220 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
       return sgkImages[num - 1];
     }
 
+    const trailingIdxMatch = clean.match(/(?:hinh|img|image)[_\-\s]*(\d+)$/i);
+    if (trailingIdxMatch) {
+      const idx = parseInt(trailingIdxMatch[1], 10);
+      if (!isNaN(idx) && idx > 0 && idx <= sgkImages.length) {
+        return sgkImages[idx - 1];
+      }
+    }
+
     return (
-      sgkImages.find((img) => img.name && (img.name === clean || img.name.includes(clean))) || null
+      sgkImages.find(
+        (img) =>
+          img.name && (img.name.toLowerCase() === clean || img.name.toLowerCase().includes(clean))
+      ) || null
     );
   };
 
-  // Renders plain/bold text runs according to activeMathFormat
-  const renderPlainAndBoldRuns = (txt: string, isRed: boolean, runKey: string) => {
-    if (!txt) return null;
-    const formatPlain = (s: string) => (activeMathFormat === 'latex' ? s : latexToUnicode(s));
-
-    const boldRegex = /\*\*(.*?)\*\*/g;
-    let bLast = 0;
-    let bMatch: RegExpExecArray | null;
-    const bNodes: React.ReactNode[] = [];
-    let bIdx = 0;
-
-    while ((bMatch = boldRegex.exec(txt)) !== null) {
-      if (bMatch.index > bLast) {
-        const normal = txt.substring(bLast, bMatch.index);
-        if (normal) {
-          bNodes.push(<span key={`${runKey}_norm_${bIdx++}`}>{formatPlain(normal)}</span>);
-        }
-      }
-      const boldContent = bMatch[1];
-      if (boldContent) {
-        bNodes.push(
-          <strong key={`${runKey}_bold_${bIdx++}`} className={isRed ? 'font-normal' : 'font-bold'}>
-            {formatPlain(boldContent)}
-          </strong>
-        );
-      }
-      bLast = boldRegex.lastIndex;
-    }
-
-    if (bLast < txt.length) {
-      const rem = txt.substring(bLast);
-      if (rem) {
-        bNodes.push(<span key={`${runKey}_rem_${bIdx++}`}>{formatPlain(rem)}</span>);
-      }
-    }
-
-    return bNodes.length > 0 ? bNodes : formatPlain(txt);
-  };
-
-  // Helper to parse math ($...$, $$...$$, \(...\), \[...\]) and bold (**...**) inside a text slice
-  const renderSegmentWithMathAndBold = (rawSegment: string, isRed: boolean, baseKey: string) => {
-    if (!rawSegment) return null;
-
-    // In 'latex' mode: display raw LaTeX verbatim as normal text (same font, inline $...$ or centered $$...$$)
-    if (activeMathFormat === 'latex') {
-      const rawLatexRegex = /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g;
-      const elements: React.ReactNode[] = [];
-      let lastIdx = 0;
-      let match: RegExpExecArray | null;
-      let subIdx = 0;
-
-      while ((match = rawLatexRegex.exec(rawSegment)) !== null) {
-        if (match.index > lastIdx) {
-          const textBefore = rawSegment.substring(lastIdx, match.index);
-          if (textBefore) {
-            elements.push(
-              <span key={`${baseKey}_ltxt_${subIdx++}`}>
-                {renderPlainAndBoldRuns(textBefore, isRed, `${baseKey}_lb_${subIdx}`)}
-              </span>
-            );
-          }
-        }
-
-        const rawToken = match[1];
-        if (rawToken.startsWith('$$') && rawToken.endsWith('$$')) {
-          elements.push(
-            <span
-              key={`${baseKey}_ldisp_${subIdx++}`}
-              className="my-1.5 block text-center font-normal"
-            >
-              {rawToken}
-            </span>
-          );
-        } else {
-          elements.push(
-            <span key={`${baseKey}_linl_${subIdx++}`} className="inline font-normal">
-              {rawToken}
-            </span>
-          );
-        }
-        lastIdx = rawLatexRegex.lastIndex;
-      }
-
-      if (lastIdx < rawSegment.length) {
-        const textAfter = rawSegment.substring(lastIdx);
-        if (textAfter) {
-          elements.push(
-            <span key={`${baseKey}_lrem_${subIdx++}`}>
-              {renderPlainAndBoldRuns(textAfter, isRed, `${baseKey}_la_${subIdx}`)}
-            </span>
-          );
-        }
-      }
-
-      return elements.length > 0
-        ? elements
-        : renderPlainAndBoldRuns(rawSegment, isRed, `${baseKey}_lfall`);
-    }
-
-    // In 'equation' mode: auto-wrap any stray unwrapped math expressions before KaTeX rendering
-    const mathRegex =
-      /(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$]+?)\$|\\\(([\s\S]+?)\\\)|(\\begin\{(?:cases|aligned|matrix|pmatrix|bmatrix|vmatrix)\}[\s\S]+?\\end\{(?:cases|aligned|matrix|pmatrix|bmatrix|vmatrix)\}))/g;
-
-    // Pre-scan plain chunks for unwrapped math so preview matches 100% OMML Word export
-    let preparedSegment = '';
-    let scanLast = 0;
-    let scanMatch: RegExpExecArray | null;
-    while ((scanMatch = mathRegex.exec(rawSegment)) !== null) {
-      if (scanMatch.index > scanLast) {
-        preparedSegment += autoWrapUnwrappedMathForEquation(
-          rawSegment.substring(scanLast, scanMatch.index)
-        );
-      }
-      preparedSegment += scanMatch[0];
-      scanLast = mathRegex.lastIndex;
-    }
-    if (scanLast < rawSegment.length) {
-      preparedSegment += autoWrapUnwrappedMathForEquation(rawSegment.substring(scanLast));
-    }
-
-    mathRegex.lastIndex = 0;
-    const elements: React.ReactNode[] = [];
-    let lastIdx = 0;
-    let match: RegExpExecArray | null;
-    let subIdx = 0;
-
-    while ((match = mathRegex.exec(preparedSegment)) !== null) {
-      if (match.index > lastIdx) {
-        const textBefore = preparedSegment.substring(lastIdx, match.index);
-        if (textBefore) {
-          elements.push(
-            <span key={`${baseKey}_txt_${subIdx++}`}>
-              {renderPlainAndBoldRuns(textBefore, isRed, `${baseKey}_b_${subIdx}`)}
-            </span>
-          );
-        }
-      }
-
-      const displayMath = match[1] || match[2] || match[5];
-      const inlineMath = match[3] || match[4];
-      const formula = displayMath || inlineMath;
-
-      if (displayMath) {
-        elements.push(
-          <span
-            key={`${baseKey}_math_${subIdx++}`}
-            className="my-1.5 block text-center overflow-x-auto py-1"
-            dangerouslySetInnerHTML={{ __html: renderLatexToHtml(formula, true) }}
-          />
-        );
-      } else if (inlineMath) {
-        elements.push(
-          <span
-            key={`${baseKey}_math_${subIdx++}`}
-            className="inline-block mx-0.5 align-middle"
-            dangerouslySetInnerHTML={{ __html: renderLatexToHtml(formula, false) }}
-          />
-        );
-      }
-
-      lastIdx = mathRegex.lastIndex;
-    }
-
-    if (lastIdx < preparedSegment.length) {
-      const textAfter = preparedSegment.substring(lastIdx);
-      if (textAfter) {
-        elements.push(
-          <span key={`${baseKey}_txt_${subIdx++}`}>
-            {renderPlainAndBoldRuns(textAfter, isRed, `${baseKey}_a_${subIdx}`)}
-          </span>
-        );
-      }
-    }
-
-    return elements.length > 0
-      ? elements
-      : renderPlainAndBoldRuns(preparedSegment, isRed, `${baseKey}_fallback`);
-  };
-
-  // Helper to parse line with [[RED:...]] into React elements
+  /**
+   * Unified Stateful Inline Renderer for A4 Live Preview:
+   * - Coordinates [[RED:...]], math ($...$, $$...$$, \(...\), \[...\], \begin{cases}), ***bold-italic***, **bold**, *italic*
+   * - Preserves 100% of spaces ("không dính chữ") and strips stray Markdown '*' / '#'
+   */
   const renderFormattedText = (text: string) => {
-    let clean = cleanLineFormatting(text)
+    let sanitized = cleanLineFormatting(text, false)
       .replace(/\[\.\.\.\]/g, '')
       .replace(/\[i\]/gi, '')
-      .replace(/\[\d+\]/g, '')
-      .replace(/&lt;br\s*\/?&gt;\s*[-–]?\s*/gi, ' ')
-      .replace(/<br\s*\/?>\s*[-–]?\s*/gi, ' ')
-      .replace(/&lt;br\s*\/?&gt;/gi, '')
-      .replace(/<br\s*\/?>/gi, '');
+      .replace(/\[\[\s*red\s*:/gi, '[[RED:');
 
-    clean = clean.replace(/\[\[\s*red\s*:/gi, '[[RED:');
-
-    const opens = (clean.match(/\[\[RED:/g) || []).length;
-    const closes = (clean.match(/\]\]/g) || []).length;
+    const opens = (sanitized.match(/\[\[RED:/g) || []).length;
+    const closes = (sanitized.match(/\]\]/g) || []).length;
     if (opens > closes) {
-      clean += ']]'.repeat(opens - closes);
+      sanitized += ']]'.repeat(opens - closes);
+    }
+    sanitized = ensureMathAndTagSpacing(sanitized);
+
+    if (activeMathFormat === 'equation') {
+      const atomicSplitRegex =
+        /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^$]+?\$|\\\([\s\S]+?\\\)|\\begin\{(?:cases|aligned|matrix|pmatrix|bmatrix|vmatrix)\}[\s\S]+?\\end\{(?:cases|aligned|matrix|pmatrix|bmatrix|vmatrix)\}|\[\[RED:|\]\])/gi;
+      let rebuilt = '';
+      let last = 0;
+      let m: RegExpExecArray | null;
+      while ((m = atomicSplitRegex.exec(sanitized)) !== null) {
+        if (m.index > last) {
+          rebuilt += autoWrapUnwrappedMathForEquation(sanitized.slice(last, m.index));
+        }
+        rebuilt += m[0];
+        last = atomicSplitRegex.lastIndex;
+      }
+      if (last < sanitized.length) {
+        rebuilt += autoWrapUnwrappedMathForEquation(sanitized.slice(last));
+      }
+      sanitized = ensureMathAndTagSpacing(rebuilt);
     }
 
-    const regex = /\[\[RED:([\s\S]*?)\]\]/gi;
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-    let keyIdx = 0;
+    type PreviewToken =
+      | { type: 'red_open' }
+      | { type: 'red_close' }
+      | { type: 'math'; raw: string; formula: string; isDisplay: boolean }
+      | { type: 'text'; value: string };
 
-    while ((match = regex.exec(clean)) !== null) {
-      if (match.index > lastIndex) {
-        const preText = clean
-          .substring(lastIndex, match.index)
-          .replace(/\[\[\s*RED:?/gi, '')
-          .replace(/\]\]/g, '');
-        if (preText) {
-          parts.push(
-            <span key={`text_${keyIdx++}`}>
-              {renderSegmentWithMathAndBold(preText, false, `p_${keyIdx}`)}
+    const streamTokens: PreviewToken[] = [];
+    const masterRegex =
+      activeMathFormat === 'latex'
+        ? /(\[\[RED:)|(\]\])|(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g
+        : /(\[\[RED:)|(\]\])|(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$]+?)\$|\\\(([\s\S]+?)\\\)|(\\begin\{(?:cases|aligned|matrix|pmatrix|bmatrix|vmatrix)\}[\s\S]+?\\end\{(?:cases|aligned|matrix|pmatrix|bmatrix|vmatrix)\}))/g;
+
+    let ptr = 0;
+    let tm: RegExpExecArray | null;
+    let openRedDepth = 0;
+
+    while ((tm = masterRegex.exec(sanitized)) !== null) {
+      if (tm.index > ptr) {
+        streamTokens.push({ type: 'text', value: sanitized.slice(ptr, tm.index) });
+      }
+      if (tm[1]) {
+        openRedDepth++;
+        streamTokens.push({ type: 'red_open' });
+      } else if (tm[2]) {
+        if (openRedDepth > 0) {
+          openRedDepth--;
+          streamTokens.push({ type: 'red_close' });
+        }
+      } else if (activeMathFormat === 'latex' && tm[3]) {
+        const isDisp = tm[3].startsWith('$$') && tm[3].endsWith('$$');
+        streamTokens.push({ type: 'math', raw: tm[3], formula: tm[3], isDisplay: isDisp });
+      } else {
+        const displayFormula = tm[3] || tm[4] || tm[7] || '';
+        const inlineFormula = tm[5] || tm[6] || '';
+        streamTokens.push({
+          type: 'math',
+          raw: tm[0],
+          formula: displayFormula || inlineFormula,
+          isDisplay: Boolean(displayFormula),
+        });
+      }
+      ptr = masterRegex.lastIndex;
+    }
+    if (ptr < sanitized.length) {
+      streamTokens.push({ type: 'text', value: sanitized.slice(ptr) });
+    }
+
+    const combinedPlain = streamTokens
+      .filter((t): t is { type: 'text'; value: string } => t.type === 'text')
+      .map((t) => t.value)
+      .join('');
+
+    const hasBalancedDoubleStar = (combinedPlain.match(/\*\*/g) || []).length >= 2;
+    const textWithoutDoubleStars = combinedPlain.replace(/\*{2,}/g, '');
+    const singleStarCount = (textWithoutDoubleStars.match(/\*/g) || []).length;
+    const allowItalicToggle = singleStarCount >= 2 && singleStarCount % 2 === 0;
+
+    let isRed = false;
+    let isBold = false;
+    let isItalic = false;
+    let nodeIdx = 0;
+    const nodes: React.ReactNode[] = [];
+
+    const pushPlainSpan = (rawStr: string) => {
+      const cleaned = cleanPlainProseForWord(rawStr).replace(/`/g, '');
+      if (!cleaned) return;
+      const cls = [
+        isRed && highlightRed ? 'edudigi-red-text' : '',
+        !isRed && isBold ? 'font-bold' : '',
+        isItalic ? 'italic' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      nodes.push(
+        <span key={`pt_${nodeIdx++}`} className={cls || undefined}>
+          {cleaned}
+        </span>
+      );
+    };
+
+    for (const tok of streamTokens) {
+      if (tok.type === 'red_open') {
+        isRed = true;
+        continue;
+      }
+      if (tok.type === 'red_close') {
+        isRed = false;
+        continue;
+      }
+      if (tok.type === 'math') {
+        const redCls = isRed && highlightRed ? 'edudigi-red-text' : '';
+        if (activeMathFormat === 'latex') {
+          nodes.push(
+            <span
+              key={`pm_${nodeIdx++}`}
+              className={`${
+                tok.isDisplay ? 'my-1.5 block text-center font-normal' : 'inline font-normal'
+              } ${redCls}`}
+            >
+              {tok.raw}
             </span>
           );
+        } else if (tok.formula) {
+          nodes.push(
+            <span
+              key={`pm_${nodeIdx++}`}
+              className={`${
+                tok.isDisplay
+                  ? 'my-1.5 block text-center overflow-x-auto py-1'
+                  : 'inline-block mx-0.5 align-middle'
+              } ${redCls}`}
+              dangerouslySetInnerHTML={{
+                __html: renderLatexToHtml(tok.formula, tok.isDisplay),
+              }}
+            />
+          );
         }
+        continue;
       }
 
-      const redText = match[1].replace(/\[\[\s*RED:?/gi, '').replace(/\]\]/g, '');
-      if (redText) {
-        parts.push(
-          <span
-            key={`red_${keyIdx++}`}
-            className={highlightRed ? 'edudigi-red-text' : 'text-slate-900 font-normal'}
-            title={
-              highlightRed
-                ? 'Nội dung mới tích hợp Năng lực số (chỉ bôi đỏ, không in đậm)'
-                : undefined
-            }
-          >
-            {renderSegmentWithMathAndBold(redText, true, `r_${keyIdx}`)}
-          </span>
-        );
+      const s = tok.value;
+      let buf = '';
+      let idx = 0;
+      while (idx < s.length) {
+        if (s.startsWith('***', idx)) {
+          if (buf) {
+            pushPlainSpan(buf);
+            buf = '';
+          }
+          if (hasBalancedDoubleStar) isBold = !isBold;
+          if (allowItalicToggle) isItalic = !isItalic;
+          idx += 3;
+          continue;
+        }
+        if (s.startsWith('**', idx)) {
+          if (buf) {
+            pushPlainSpan(buf);
+            buf = '';
+          }
+          if (hasBalancedDoubleStar) isBold = !isBold;
+          idx += 2;
+          continue;
+        }
+        if (s[idx] === '*') {
+          if (buf) {
+            pushPlainSpan(buf);
+            buf = '';
+          }
+          if (allowItalicToggle) isItalic = !isItalic;
+          idx += 1;
+          continue;
+        }
+        buf += s[idx];
+        idx++;
       }
-
-      lastIndex = regex.lastIndex;
+      if (buf) {
+        pushPlainSpan(buf);
+      }
     }
 
-    if (lastIndex < clean.length) {
-      const remText = clean
-        .substring(lastIndex)
-        .replace(/\[\[\s*RED:?/gi, '')
-        .replace(/\]\]/g, '');
-      if (remText) {
-        parts.push(
-          <span key={`text_${keyIdx++}`}>
-            {renderSegmentWithMathAndBold(remText, false, `rem_${keyIdx}`)}
-          </span>
-        );
-      }
-    }
-
-    return parts.length > 0
-      ? parts
-      : renderSegmentWithMathAndBold(
-          clean.replace(/\[\[\s*RED:?/gi, '').replace(/\]\]/g, ''),
-          false,
-          'full_fallback'
-        );
+    return nodes;
   };
 
   // Renders an extracted 1pt black mathematical SVG visual block
@@ -468,7 +460,7 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
     );
   };
 
-  // Renders cell content, supporting embedded SGK images, generated 1pt black SVG graphs, and multi-line cells
+  // Renders cell content, supporting embedded SGK/old-plan images, generated 1pt black SVG graphs, and multi-line cells
   const renderTableCell = (cellText: string) => {
     const subLines = cellText.split(/<br\s*\/?>/i);
 
@@ -481,8 +473,12 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
           trimmedSub = trimmedSub
             .replace(/^&lt;br\s*\/?&gt;\s*[-–]?\s*/i, '')
             .replace(/^<br\s*\/?>\s*[-–]?\s*/i, '')
-            .replace(/&lt;br\s*\/?&gt;/gi, '')
-            .replace(/<br\s*\/?>/gi, '');
+            .replace(/&lt;br\s*\/?&gt;/gi, ' ')
+            .replace(/<br\s*\/?>/gi, ' ');
+
+          const strippedHash = stripHeadingHashes(trimmedSub);
+          const isCellSubHeading = strippedHash.level > 0;
+          trimmedSub = strippedHash.text;
           if (!trimmedSub) return null;
 
           // 1. Check for generated mathematical figure [[GEN_SVG:id:caption]] inside cell
@@ -543,10 +539,20 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
           const isBullet =
             trimmedSub.startsWith('- ') ||
             trimmedSub.startsWith('– ') ||
-            trimmedSub.startsWith('+ ');
+            trimmedSub.startsWith('+ ') ||
+            trimmedSub.startsWith('* ');
+          const cleanBulletLine = trimmedSub.startsWith('* ')
+            ? '– ' + trimmedSub.slice(2)
+            : trimmedSub;
+
           return (
-            <div key={idx} className={isBullet ? 'pl-2 text-justify' : 'text-justify'}>
-              {renderFormattedText(trimmedSub)}
+            <div
+              key={idx}
+              className={`${isBullet ? 'pl-2' : ''} ${
+                isCellSubHeading ? 'font-bold' : ''
+              } text-justify`}
+            >
+              {renderFormattedText(cleanBulletLine)}
             </div>
           );
         })}
@@ -564,24 +570,37 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
 
     const flushTable = (key: string) => {
       if (tableRows.length === 0) return;
-      const headers = tableRows[0];
-      const dataRows = tableRows.slice(1);
+      const colCount = Math.max(1, ...tableRows.map((r) => r.length));
+      const firstRowJoined = (tableRows[0] || []).join(' ').toUpperCase();
+      const isSingleColBox = colCount === 1;
+      const isSchoolBanner =
+        tableRows.length <= 2 &&
+        colCount === 2 &&
+        /(?:TRƯỜNG|SỞ\s+GD|PHÒNG\s+GD|TỔ\s*:|TỔ\s+CHUYÊN\s+MÔN|HỌ\s+VÀ\s+TÊN\s+GIÁO\s+VIÊN)/i.test(
+          firstRowJoined
+        );
+      const hasSemanticHeader = tableRows.length >= 2 && !isSingleColBox && !isSchoolBanner;
+
+      const headers = hasSemanticHeader ? tableRows[0] : [];
+      const dataRows = hasSemanticHeader ? tableRows.slice(1) : tableRows;
 
       elements.push(
         <div key={key} className="my-4 overflow-x-auto">
           <table className="min-w-full border-collapse border border-slate-400 bg-white">
-            <thead>
-              <tr className="bg-slate-100">
-                {headers.map((h, colIdx) => (
-                  <th
-                    key={colIdx}
-                    className="border border-slate-400 px-3 py-2 text-center font-bold text-slate-900 align-middle"
-                  >
-                    {renderTableCell(h)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
+            {hasSemanticHeader && (
+              <thead>
+                <tr className="bg-slate-100">
+                  {headers.map((h, colIdx) => (
+                    <th
+                      key={colIdx}
+                      className="border border-slate-400 px-3 py-2 text-center font-bold text-slate-900 align-middle"
+                    >
+                      {renderTableCell(h)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+            )}
             <tbody>
               {dataRows.map((row, rowIdx) => (
                 <tr key={rowIdx} className="hover:bg-slate-50/40">
@@ -607,13 +626,23 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
       const cleaned = cleanLineFormatting(line);
       const trimmed = cleaned.trim();
 
+      // Skip horizontal divider rules (***, ---, ___)
+      if (/^(?:\*{3,}|-{3,}|_{3,})$/.test(trimmed)) {
+        i++;
+        continue;
+      }
+
       // 1. Standalone generated mathematical SVG tag: [[GEN_SVG:gen_svg_1:Hình 1...]]
       const genSvgMatch = trimmed.match(/^\[\[GEN_SVG:([^:\]]+)(?::([\s\S]*?))?\]\]$/);
       if (genSvgMatch) {
         if (tableRows.length > 0) flushTable(`table_${i}`);
         elements.push(
           <div key={`gensvg_${i}`}>
-            {renderGeneratedVisualBlock(genSvgMatch[1].trim(), (genSvgMatch[2] || '').trim(), false)}
+            {renderGeneratedVisualBlock(
+              genSvgMatch[1].trim(),
+              (genSvgMatch[2] || '').trim(),
+              false
+            )}
           </div>
         );
         i++;
@@ -659,7 +688,7 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
         continue;
       }
 
-      // 3. Markdown Table row: starts and ends with | (split safely without breaking |x| inside $...$)
+      // 3. Markdown Table row: starts and ends with |
       if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
         if (/^\|[\s\-:|]+\|$/.test(trimmed)) {
           i++;
@@ -687,13 +716,23 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
         elements.push(
           <div key={`p_svg_${i}`} className="my-2">
             {before && (
-              <p className="indent-8 text-justify" style={{ marginBottom: `${activeParaAfterPt}pt` }}>
+              <p
+                className="indent-8 text-justify"
+                style={{ marginBottom: `${activeParaAfterPt}pt` }}
+              >
                 {renderFormattedText(before)}
               </p>
             )}
-            {renderGeneratedVisualBlock(inlineMatch[1].trim(), (inlineMatch[2] || '').trim(), false)}
+            {renderGeneratedVisualBlock(
+              inlineMatch[1].trim(),
+              (inlineMatch[2] || '').trim(),
+              false
+            )}
             {after && (
-              <p className="indent-8 text-justify" style={{ marginBottom: `${activeParaAfterPt}pt` }}>
+              <p
+                className="indent-8 text-justify"
+                style={{ marginBottom: `${activeParaAfterPt}pt` }}
+              >
                 {renderFormattedText(after)}
               </p>
             )}
@@ -703,21 +742,24 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
         continue;
       }
 
+      // Strip any leading Markdown heading hashes (# through ######)
+      const { level: hashLevel, text: noHashText } = stripHeadingHashes(trimmed);
+
       // 5. Title or Heading 1
       if (
-        trimmed.startsWith('# ') ||
-        trimmed.startsWith('KẾ HOẠCH BÀI DẠY') ||
-        trimmed.startsWith('GIÁO ÁN') ||
-        /^BÀI\s+\d+[:.\s]/i.test(trimmed)
+        hashLevel === 1 ||
+        noHashText.startsWith('KẾ HOẠCH BÀI DẠY') ||
+        noHashText.startsWith('GIÁO ÁN') ||
+        /^BÀI\s+\d+[:.\s]/i.test(noHashText) ||
+        /^CHỦ\s+ĐỀ\s+\d*[:.\s]/i.test(noHashText)
       ) {
-        const text = trimmed.replace(/^#\s*/, '');
         elements.push(
           <h1
             key={`h1_${i}`}
             className="text-center font-bold text-slate-900 my-3 tracking-wide"
             style={{ fontSize: `${activeFontPt + 2}pt` }}
           >
-            {renderFormattedText(text)}
+            {renderFormattedText(noHashText)}
           </h1>
         );
         i++;
@@ -725,33 +767,31 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
       }
 
       // 6. Main Roman sections (I. MỤC TIÊU, II. THIẾT BỊ, V. PHỤ LỤC, etc.)
-      if (/^[IVXLCDM]+\.\s+/i.test(trimmed) || trimmed.startsWith('## ')) {
-        const text = trimmed.replace(/^##\s*/, '');
+      if (/^[IVXLCDM]+\.\s+/i.test(noHashText) || hashLevel === 2) {
         elements.push(
           <h2
             key={`h2_${i}`}
             className="font-bold text-slate-900 mt-4 mb-2"
             style={{ fontSize: `${activeFontPt + 1}pt` }}
           >
-            {renderFormattedText(text)}
+            {renderFormattedText(noHashText)}
           </h2>
         );
         i++;
         continue;
       }
 
-      // 7. Subsections (1. Về kiến thức, a) Năng lực chung, Hoạt động 1, Phiếu học tập...)
+      // 7. Subsections (1. Về kiến thức, a) Năng lực chung, Hoạt động 1, Phiếu học tập, ###, ####...)
       if (
-        /^(\d+(\.\d+)?\.|[a-z]\))\s+/i.test(trimmed) ||
-        /^Hoạt động\s+\d+/i.test(trimmed) ||
-        /^PHIẾU HỌC TẬP/i.test(trimmed) ||
-        /^BẢNG RUBRIC/i.test(trimmed) ||
-        trimmed.startsWith('### ')
+        /^(\d+(\.\d+)?\.|[a-z][.)])\s+/i.test(noHashText) ||
+        /^Hoạt động\s+\d+/i.test(noHashText) ||
+        /^PHIẾU HỌC TẬP/i.test(noHashText) ||
+        /^BẢNG RUBRIC/i.test(noHashText) ||
+        hashLevel >= 3
       ) {
-        const text = trimmed.replace(/^###\s*/, '');
         elements.push(
           <h3 key={`h3_${i}`} className="font-bold text-slate-900 mt-2.5 mb-1.5">
-            {renderFormattedText(text)}
+            {renderFormattedText(noHashText)}
           </h3>
         );
         i++;
@@ -759,10 +799,10 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
       }
 
       // 8. Bullet points (with or without [[RED:...]] wrapper)
-      const unwrappedForBullet = trimmed.replace(/^\[\[RED:\s*/i, '');
+      const unwrappedForBullet = noHashText.replace(/^\[\[RED:\s*/i, '');
       const bulletMatch = unwrappedForBullet.match(/^([-–*+•])\s+(.*)$/);
       if (bulletMatch) {
-        const isRed = /^\[\[RED:/i.test(trimmed);
+        const isRed = /^\[\[RED:/i.test(noHashText);
         const bulletText = isRed ? `[[RED:${bulletMatch[2]}` : bulletMatch[2];
         elements.push(
           <div
@@ -779,7 +819,7 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
       }
 
       // 9. Standalone display math equation ($$...$$ or \[...\])
-      const unwrappedMath = trimmed.replace(/^\[\[RED:\s*/i, '').replace(/\]\]$/, '').trim();
+      const unwrappedMath = noHashText.replace(/^\[\[RED:\s*/i, '').replace(/\]\]$/, '').trim();
       if (/^(\$\$[\s\S]+\$\$|\\\[[\s\S]+\\\])$/.test(unwrappedMath)) {
         elements.push(
           <div
@@ -787,7 +827,7 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
             className="my-2.5 text-center overflow-x-auto py-1"
             style={{ marginBottom: `${activeParaAfterPt}pt` }}
           >
-            {renderFormattedText(trimmed)}
+            {renderFormattedText(noHashText)}
           </div>
         );
         i++;
@@ -801,7 +841,7 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
           className="indent-8 text-justify"
           style={{ marginBottom: `${activeParaAfterPt}pt` }}
         >
-          {renderFormattedText(trimmed)}
+          {renderFormattedText(noHashText)}
         </p>
       );
 
@@ -816,13 +856,17 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
   };
 
   // Check if original content already has school banner
-  const first500 = content.slice(0, 500).toUpperCase();
+  const first800 = content.slice(0, 800).toUpperCase();
   const hasExistingHeader =
-    first500.includes('SỞ GIÁO DỤC') ||
-    first500.includes('PHÒNG GD') ||
-    first500.includes('TRƯỜNG:') ||
-    first500.includes('TRƯỜNG TH') ||
-    first500.includes('UBND');
+    preserveOriginalHeader ||
+    Boolean(templateProfile?.hasSchoolHeader) ||
+    first800.includes('SỞ GIÁO DỤC') ||
+    first800.includes('PHÒNG GD') ||
+    first800.includes('TRƯỜNG:') ||
+    first800.includes('TRƯỜNG TH') ||
+    first800.includes('TỔ:') ||
+    first800.includes('TỔ CHUYÊN MÔN') ||
+    first800.includes('UBND');
 
   return (
     <div className="space-y-4">
@@ -843,7 +887,10 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
                 </span>
               )}{' '}
               · Font <b>{activeFontName}</b> {activeFontPt}pt · Khổ A4 (
-              {isNarrowMargin ? 'Lề hẹp 1,27 cm' : 'Trái 2,5 cm, Trên/Dưới/Phải 1,5 cm'}) · Hình vẽ 1pt Black.
+              {isNarrowMargin ? 'Lề hẹp 1,27 cm' : 'Trái 2,5 cm, Trên/Dưới/Phải 1,5 cm'})
+              {preferDirectDocxInjection
+                ? ' · Bảo toàn nguyên bản file Word gốc (.docx) 100%.'
+                : ' · Hình vẽ 1pt Black.'}
             </span>
           </div>
         </div>
@@ -872,7 +919,8 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
               </span>
               {verificationReport.mathFormat === 'latex' && (
                 <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900">
-                  LaTeX: {verificationReport.rawInlineLatexCount + verificationReport.rawDisplayLatexCount}
+                  LaTeX:{' '}
+                  {verificationReport.rawInlineLatexCount + verificationReport.rawDisplayLatexCount}
                 </span>
               )}
               <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-800">
@@ -958,7 +1006,7 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
             </span>
           ) : sgkImages.length > 0 ? (
             <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full font-medium text-[11px] flex items-center gap-1">
-              <ImageIcon className="w-3 h-3" /> Đã nạp {sgkImages.length} tài liệu SGK
+              <ImageIcon className="w-3 h-3" /> Đã nạp {sgkImages.length} tài liệu hình ảnh
             </span>
           ) : null}
         </div>
@@ -1000,22 +1048,34 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
             <span>In A4</span>
           </button>
 
-          {originalDocxBuffer && (
-            <button
-              type="button"
-              onClick={handleExportInjectedWord}
-              disabled={isExporting}
-              title="Chỉ chèn thêm nội dung năng lực số vào file Word bạn đã tải lên ở Bước 4 (nếu file đó đúng là bài dạy này)"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <FileText className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Chèn vào file Word mẫu</span>
-            </button>
-          )}
+          {originalDocxBuffer &&
+            (preferDirectDocxInjection ? (
+              <button
+                type="button"
+                onClick={handleExportRebuiltWord}
+                disabled={isExporting}
+                title="Dựng lại thành tệp Word mới chuẩn hóa khổ A4 theo các tùy chọn font/lề đã chọn"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Tải bản dựng mới A4</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleExportInjectedWord}
+                disabled={isExporting}
+                title="Giữ nguyên 100% file Word gốc đã tải lên (bố cục, bảng, ảnh, Equation, Phiếu học tập) và chỉ chèn thêm nội dung Năng lực số màu đỏ"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Chèn vào file Word gốc</span>
+              </button>
+            ))}
 
           <button
             type="button"
-            onClick={handleExportWord}
+            onClick={handlePrimaryExportWord}
             disabled={isExporting}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg shadow-sm transition-colors disabled:opacity-50"
           >
@@ -1023,6 +1083,8 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
             <span>
               {isExporting
                 ? 'Đang kiểm tra XML & xuất Word...'
+                : preferDirectDocxInjection
+                ? `Tải Word giữ nguyên gốc (${activeMathFormat === 'latex' ? 'LaTeX' : 'Equation'})`
                 : `Tải Word (${activeMathFormat === 'latex' ? 'LaTeX' : 'Equation'})`}
             </span>
           </button>
@@ -1035,7 +1097,7 @@ export const LessonPlanPreview: React.FC<LessonPlanPreviewProps> = ({
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>
               Chỉnh sửa văn bản trực tiếp (Bôi đỏ:{' '}
-              <code className="text-red-600 font-mono">[[RED:nội dung]]</code>, chèn ảnh SGK:{' '}
+              <code className="text-red-600 font-mono">[[RED:nội dung]]</code>, chèn ảnh:{' '}
               <code className="text-indigo-600 font-mono">[[IMAGE:1:Chú thích]]</code>, hoặc khối
               hình vẽ <code className="text-emerald-700 font-mono">&lt;svg&gt;...&lt;/svg&gt;</code>)
             </span>

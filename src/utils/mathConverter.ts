@@ -7,8 +7,11 @@ export type MathOutputFormat = "equation" | "latex";
  * Concrete XmlComponent subclass for arbitrary Office Open XML / OMML elements
  */
 export class CustomXmlComponent extends XmlComponent {
+  public readonly tagName: string;
+
   constructor(tag: string, ...children: any[]) {
     super(tag);
+    this.tagName = tag;
     for (const child of children) {
       if (child !== undefined && child !== null) {
         this.root.push(child);
@@ -22,6 +25,10 @@ export class CustomXmlComponent extends XmlComponent {
         this.root.push(c);
       }
     }
+  }
+
+  public getChildren(): any[] {
+    return this.root;
   }
 }
 
@@ -261,10 +268,66 @@ function stripOuterMathDelimiters(s: string): string {
 }
 
 /**
- * Converts a LaTeX formula into clean Unicode text (used for plain-text fallback / copy)
+ * Cleans non-math plain prose runs for Word / Preview while STRICTLY preserving
+ * all leading and trailing spaces so adjacent runs/equations NEVER glue together ("dính chữ").
+ */
+export function cleanPlainProseForWord(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\\([*#_|`~\[\]])/g, "$1");
+}
+
+/**
+ * Ensures proper word spacing around inline math ($...$, $$...$$) and [[RED:...]] tags
+ * so Vietnamese words never stick directly onto formulas or red tags (e.g. "hệ$x>0$và" -> "hệ $x>0$ và").
+ */
+export function ensureMathAndTagSpacing(text: string): string {
+  if (!text) return "";
+  let out = text;
+
+  // 1. Move leading/trailing spaces inside [[RED: ... ]] outside the tag instead of deleting them!
+  out = out.replace(/\[\[RED:([ \t]*)([\s\S]*?)([ \t]*)\]\]/gi, (full, leadSp, body, trailSp, offset, str) => {
+    const cleanBody = body.trim();
+    if (!cleanBody) return leadSp || trailSp ? " " : "";
+    const prevCh = offset > 0 ? str[offset - 1] : "";
+    const nextCh = offset + full.length < str.length ? str[offset + full.length] : "";
+    const needLead =
+      (leadSp && prevCh && !/[\s(\[{"'“‘>\/]/.test(prevCh)) ||
+      (!leadSp && prevCh && /[\p{L}\p{N}:;,.)!?]/u.test(prevCh) && /^[\p{L}\p{N}]/u.test(cleanBody));
+    const needTrail =
+      (trailSp && nextCh && !/[\s.,;:!?)\]}"'”’<]/.test(nextCh)) ||
+      (!trailSp && nextCh && /[\p{L}\p{N}]/u.test(nextCh) && /[\p{L}\p{N}.!?)]$/u.test(cleanBody));
+    return `${needLead ? " " : ""}[[RED:${cleanBody}]]${needTrail ? " " : ""}`;
+  });
+
+  // 2. Ensure space between Vietnamese letters and atomic math spans ($...$ or $$...$$)
+  out = out.replace(/(\$\$[^$\n]+?\$\$|\$[^$\n]+?\$)/g, (mathToken, _g1, offset, str) => {
+    const prevCh = offset > 0 ? str[offset - 1] : "";
+    const nextCh = offset + mathToken.length < str.length ? str[offset + mathToken.length] : "";
+    const prefix = prevCh && /\p{L}/u.test(prevCh) ? " " : "";
+    const suffix = nextCh && /\p{L}/u.test(nextCh) ? " " : "";
+    return `${prefix}${mathToken}${suffix}`;
+  });
+
+  return out;
+}
+
+/**
+ * Converts a LaTeX formula into clean Unicode text (used for plain-text fallback / copy).
+ * Preserves leading/trailing spaces when called on plain text without outer math delimiters!
  */
 export function latexToUnicode(latex: string): string {
   if (!latex) return "";
+  const trimmedCheck = latex.trim();
+  const hasMathDelim =
+    (trimmedCheck.startsWith("$$") && trimmedCheck.endsWith("$$") && trimmedCheck.length >= 4) ||
+    (trimmedCheck.startsWith("$") && trimmedCheck.endsWith("$") && trimmedCheck.length >= 2) ||
+    (trimmedCheck.startsWith("\\[") && trimmedCheck.endsWith("\\]")) ||
+    (trimmedCheck.startsWith("\\(") && trimmedCheck.endsWith("\\)"));
+
+  const leadSpace = !hasMathDelim ? latex.match(/^[ \t]+/)?.[0] || "" : "";
+  const trailSpace = !hasMathDelim ? latex.match(/[ \t]+$/)?.[0] || "" : "";
   let s = stripOuterMathDelimiters(latex);
 
   // Decimal comma 2{,}5 -> 2,5
@@ -344,7 +407,7 @@ export function latexToUnicode(latex: string): string {
     .replace(/\\[,;:!]/g, " ");
   s = s.replace(/\\/g, "");
 
-  return s;
+  return `${leadSpace}${s}${trailSpace}`;
 }
 
 // ============================================================================
@@ -1148,9 +1211,13 @@ export function autoWrapUnwrappedMathForEquation(plainText: string): string {
   );
 
   const wrap = (expr: string) => {
+    const leadWs = expr.match(/^[ \t]+/)?.[0] || "";
+    const trailWs = expr.match(/[ \t]+$/)?.[0] || "";
+    const trimmed = expr.trim();
+    if (!trimmed) return expr;
     const idx = protectedTokens.length;
-    protectedTokens.push(`$${expr.trim()}$`);
-    return `@@PROT_${idx}@@`;
+    protectedTokens.push(`$${trimmed}$`);
+    return `${leadWs}@@PROT_${idx}@@${trailWs}`;
   };
 
   // 1. Braced system notation e.g. {x < 0; y ≥ 0} or {-2x + y < 3; 4x + 3y < 1}
@@ -1375,3 +1442,336 @@ export function containsMath(text: string): boolean {
     )
   );
 }
+
+// ============================================================================
+// PART 3: OMML (<m:oMath>) <-> DOM SERIALIZER & DECOMPILER FOR DOCX PRESERVATION
+// ============================================================================
+
+const W_XML_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const M_XML_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math";
+const STD_XML_NS = "http://www.w3.org/XML/1998/namespace";
+
+/**
+ * Serializes a CustomXmlComponent OMML node directly into a W3C XML DOM Element
+ * so docxInjector can inject authentic editable Word Equations (<m:oMath>) into original .docx files.
+ */
+export function customXmlToDomElement(xmlDoc: Document, comp: CustomXmlComponent): Element {
+  const tag = comp.tagName || "m:r";
+  const ns = tag.startsWith("w:") ? W_XML_NS : M_XML_NS;
+  const el = xmlDoc.createElementNS(ns, tag);
+
+  for (const child of comp.getChildren()) {
+    if (child === undefined || child === null) continue;
+    if (typeof child === "string") {
+      el.appendChild(xmlDoc.createTextNode(child));
+    } else if (child instanceof CustomXmlComponent) {
+      el.appendChild(customXmlToDomElement(xmlDoc, child));
+    } else if (typeof child === "object" && child._attr) {
+      for (const [attrName, attrVal] of Object.entries(child._attr)) {
+        const strVal = String(attrVal);
+        if (attrName === "xml:space") {
+          el.setAttributeNS(STD_XML_NS, "xml:space", strVal);
+        } else if (attrName.startsWith("w:")) {
+          el.setAttributeNS(W_XML_NS, attrName, strVal);
+        } else if (attrName.startsWith("m:")) {
+          el.setAttributeNS(M_XML_NS, attrName, strVal);
+        } else {
+          el.setAttribute(attrName, strVal);
+        }
+      }
+    }
+  }
+
+  return el;
+}
+
+export function convertLatexToOmmlDomElement(
+  xmlDoc: Document,
+  formula: string,
+  isRed = false
+): Element {
+  const comp = convertLatexToDocxMath(formula, isRed);
+  return customXmlToDomElement(xmlDoc, comp);
+}
+
+function getOmmlLocalName(node: Node): string {
+  const el = node as Element;
+  return el.localName || (el.nodeName ? el.nodeName.replace(/^.*:/, "") : "");
+}
+
+function findDirectOmmlChild(parent: Element, localName: string): Element | null {
+  for (let i = 0; i < parent.childNodes.length; i++) {
+    const c = parent.childNodes[i];
+    if (c.nodeType === 1 && getOmmlLocalName(c) === localName) {
+      return c as Element;
+    }
+  }
+  return null;
+}
+
+function findDirectOmmlChildren(parent: Element, localName: string): Element[] {
+  const out: Element[] = [];
+  for (let i = 0; i < parent.childNodes.length; i++) {
+    const c = parent.childNodes[i];
+    if (c.nodeType === 1 && getOmmlLocalName(c) === localName) {
+      out.push(c as Element);
+    }
+  }
+  return out;
+}
+
+function getOmmlAttrVal(el: Element | null): string {
+  if (!el) return "";
+  return (
+    el.getAttributeNS(M_XML_NS, "val") ||
+    el.getAttribute("m:val") ||
+    el.getAttribute("val") ||
+    ""
+  );
+}
+
+function convertOmmlRunTextToLatex(rawText: string): string {
+  if (!rawText) return "";
+  let s = rawText;
+  for (const [uni, cmd] of Object.entries(UNICODE_TO_LATEX_MAP)) {
+    if (s.includes(uni)) {
+      s = s.split(uni).join(cmd);
+    }
+  }
+  // N-ary symbols if stored directly in m:t
+  const naryRev: Record<string, string> = {
+    "∑": "\\sum ",
+    "∏": "\\prod ",
+    "∫": "\\int ",
+    "∬": "\\iint ",
+    "∮": "\\oint ",
+    "⋃": "\\bigcup ",
+    "⋂": "\\bigcap ",
+    "√": "\\sqrt ",
+  };
+  for (const [uni, cmd] of Object.entries(naryRev)) {
+    if (s.includes(uni)) {
+      s = s.split(uni).join(cmd);
+    }
+  }
+  return s;
+}
+
+/**
+ * Recursively decompiles a Word OpenXML Math (<m:oMath> or <m:oMathPara>) DOM element
+ * back into clean LaTeX so 100% of formulas in uploaded .docx lesson plans are preserved!
+ */
+export function ommlElementToLatex(el: Element): string {
+  const ln = getOmmlLocalName(el);
+
+  const childrenToLatex = (container: Element | null): string => {
+    if (!container) return "";
+    let acc = "";
+    for (let i = 0; i < container.childNodes.length; i++) {
+      const child = container.childNodes[i];
+      if (child.nodeType === 1) {
+        acc += ommlElementToLatex(child as Element);
+      }
+    }
+    return acc;
+  };
+
+  if (ln === "oMathPara") {
+    const oMaths = findDirectOmmlChildren(el, "oMath");
+    return oMaths.map((m) => ommlElementToLatex(m)).join(" ");
+  }
+
+  if (ln === "oMath" || ln === "e" || ln === "num" || ln === "den" || ln === "sub" || ln === "sup" || ln === "deg" || ln === "lim" || ln === "fName") {
+    return childrenToLatex(el);
+  }
+
+  // Skip formatting/property containers
+  if (ln.endsWith("Pr") || ln === "argPr" || ln === "ctrlPr") {
+    return "";
+  }
+
+  // Math run <m:r> -> <m:t>
+  if (ln === "r") {
+    const tNodes = findDirectOmmlChildren(el, "t");
+    const raw = tNodes.map((t) => t.textContent || "").join("");
+    return convertOmmlRunTextToLatex(raw);
+  }
+
+  if (ln === "t") {
+    return convertOmmlRunTextToLatex(el.textContent || "");
+  }
+
+  // Fraction <m:f>
+  if (ln === "f") {
+    const num = childrenToLatex(findDirectOmmlChild(el, "num")).trim();
+    const den = childrenToLatex(findDirectOmmlChild(el, "den")).trim();
+    return `\\frac{${num}}{${den}}`;
+  }
+
+  // Radical <m:rad>
+  if (ln === "rad") {
+    const radPr = findDirectOmmlChild(el, "radPr");
+    const degHide = getOmmlAttrVal(radPr ? findDirectOmmlChild(radPr, "degHide") : null);
+    const deg = childrenToLatex(findDirectOmmlChild(el, "deg")).trim();
+    const body = childrenToLatex(findDirectOmmlChild(el, "e")).trim();
+    if (deg && degHide !== "1" && degHide !== "on" && degHide !== "true") {
+      return `\\sqrt[${deg}]{${body}}`;
+    }
+    return `\\sqrt{${body}}`;
+  }
+
+  // Superscript <m:sSup>
+  if (ln === "sSup") {
+    const base = childrenToLatex(findDirectOmmlChild(el, "e")).trim();
+    const sup = childrenToLatex(findDirectOmmlChild(el, "sup")).trim();
+    const wrappedBase = base.length > 1 && !/^\\[a-zA-Z]+$/.test(base) && !/^\(.*\)$/.test(base) ? `{${base}}` : base;
+    return `${wrappedBase}^{${sup}}`;
+  }
+
+  // Subscript <m:sSub>
+  if (ln === "sSub") {
+    const base = childrenToLatex(findDirectOmmlChild(el, "e")).trim();
+    const sub = childrenToLatex(findDirectOmmlChild(el, "sub")).trim();
+    const wrappedBase = base.length > 1 && !/^\\[a-zA-Z]+$/.test(base) && !/^\(.*\)$/.test(base) ? `{${base}}` : base;
+    return `${wrappedBase}_{${sub}}`;
+  }
+
+  // Sub-Superscript <m:sSubSup>
+  if (ln === "sSubSup") {
+    const base = childrenToLatex(findDirectOmmlChild(el, "e")).trim();
+    const sub = childrenToLatex(findDirectOmmlChild(el, "sub")).trim();
+    const sup = childrenToLatex(findDirectOmmlChild(el, "sup")).trim();
+    const wrappedBase = base.length > 1 && !/^\\[a-zA-Z]+$/.test(base) && !/^\(.*\)$/.test(base) ? `{${base}}` : base;
+    return `${wrappedBase}_{${sub}}^{${sup}}`;
+  }
+
+  // Delimiters <m:d> (parentheses, brackets, braces, systems of equations)
+  if (ln === "d") {
+    const dPr = findDirectOmmlChild(el, "dPr");
+    const begEl = dPr ? findDirectOmmlChild(dPr, "begChr") : null;
+    const endEl = dPr ? findDirectOmmlChild(dPr, "endChr") : null;
+    const sepEl = dPr ? findDirectOmmlChild(dPr, "sepChr") : null;
+    // OpenXML default when begChr/endChr element is absent is '(' and ')'
+    const beg = begEl ? getOmmlAttrVal(begEl) : "(";
+    const end = endEl ? getOmmlAttrVal(endEl) : ")";
+    const sep = sepEl ? getOmmlAttrVal(sepEl) : "|";
+
+    const eChildren = findDirectOmmlChildren(el, "e");
+    // System of equations: beg === "{" and end === ""
+    if (beg === "{" && end === "") {
+      if (eChildren.length === 1) {
+        const eqArr = findDirectOmmlChild(eChildren[0], "eqArr");
+        if (eqArr) {
+          const rows = findDirectOmmlChildren(eqArr, "e")
+            .map((r) => childrenToLatex(r).trim())
+            .filter(Boolean);
+          return `\\begin{cases} ${rows.join(" \\\\ ")} \\end{cases}`;
+        }
+      }
+      const rows = eChildren.map((c) => childrenToLatex(c).trim()).filter(Boolean);
+      if (rows.length > 1) {
+        return `\\begin{cases} ${rows.join(" \\\\ ")} \\end{cases}`;
+      }
+    }
+
+    const inner = eChildren.map((c) => childrenToLatex(c).trim()).join(` ${sep} `);
+    const mapDelim = (d: string, isLeft: boolean) => {
+      if (!d) return isLeft ? "\\left." : "\\right.";
+      if (d === "{") return "\\{";
+      if (d === "}") return "\\}";
+      return d;
+    };
+    if (beg === "(" && end === ")" && !/\\(?:frac|sqrt|begin|sum|int)/.test(inner)) {
+      return `(${inner})`;
+    }
+    return `\\left${mapDelim(beg, true)} ${inner} \\right${mapDelim(end, false)}`;
+  }
+
+  // Equation Array <m:eqArr>
+  if (ln === "eqArr") {
+    const rows = findDirectOmmlChildren(el, "e")
+      .map((r) => childrenToLatex(r).trim())
+      .filter(Boolean);
+    if (rows.length <= 1) return rows[0] || "";
+    return `\\begin{aligned} ${rows.join(" \\\\ ")} \\end{aligned}`;
+  }
+
+  // Accent <m:acc> (vectors, hats, tildes)
+  if (ln === "acc") {
+    const accPr = findDirectOmmlChild(el, "accPr");
+    const chr = getOmmlAttrVal(accPr ? findDirectOmmlChild(accPr, "chr") : null);
+    const body = childrenToLatex(findDirectOmmlChild(el, "e")).trim();
+    if (chr === "\u20D7" || chr === "\u2192" || chr === "→") {
+      return `\\overrightarrow{${body}}`;
+    }
+    if (chr === "\u0303" || chr === "~") {
+      return `\\widetilde{${body}}`;
+    }
+    if (chr === "\u0304" || chr === "¯") {
+      return `\\overline{${body}}`;
+    }
+    return `\\widehat{${body}}`;
+  }
+
+  // Bar <m:bar>
+  if (ln === "bar") {
+    const barPr = findDirectOmmlChild(el, "barPr");
+    const pos = getOmmlAttrVal(barPr ? findDirectOmmlChild(barPr, "pos") : null);
+    const body = childrenToLatex(findDirectOmmlChild(el, "e")).trim();
+    return pos === "bot" ? `\\underline{${body}}` : `\\overline{${body}}`;
+  }
+
+  // N-ary <m:nary> (sum, prod, int, union, intersection)
+  if (ln === "nary") {
+    const naryPr = findDirectOmmlChild(el, "naryPr");
+    const chr = getOmmlAttrVal(naryPr ? findDirectOmmlChild(naryPr, "chr") : null) || "∑";
+    const subHide = getOmmlAttrVal(naryPr ? findDirectOmmlChild(naryPr, "subHide") : null);
+    const supHide = getOmmlAttrVal(naryPr ? findDirectOmmlChild(naryPr, "supHide") : null);
+    const sub = subHide === "1" ? "" : childrenToLatex(findDirectOmmlChild(el, "sub")).trim();
+    const sup = supHide === "1" ? "" : childrenToLatex(findDirectOmmlChild(el, "sup")).trim();
+    const body = childrenToLatex(findDirectOmmlChild(el, "e")).trim();
+    const cmdMap: Record<string, string> = {
+      "∑": "\\sum",
+      "∏": "\\prod",
+      "∫": "\\int",
+      "∬": "\\iint",
+      "∮": "\\oint",
+      "⋃": "\\bigcup",
+      "⋂": "\\bigcap",
+    };
+    const cmd = cmdMap[chr] || "\\int";
+    return `${cmd}${sub ? `_{${sub}}` : ""}${sup ? `^{${sup}}` : ""} ${body}`.trim();
+  }
+
+  // Lower limit <m:limLow> (e.g. \lim_{x \to 0})
+  if (ln === "limLow") {
+    const fn = childrenToLatex(findDirectOmmlChild(el, "e")).trim();
+    const lim = childrenToLatex(findDirectOmmlChild(el, "lim")).trim();
+    const fnLatex = fn === "lim" ? "\\lim" : fn;
+    return `${fnLatex}_{${lim}} `;
+  }
+
+  // Math function <m:func> (e.g. sin, cos, log)
+  if (ln === "func") {
+    const fnRaw = childrenToLatex(findDirectOmmlChild(el, "fName")).trim();
+    const body = childrenToLatex(findDirectOmmlChild(el, "e")).trim();
+    const fnLatex = NAMED_FUNCTIONS.has(fnRaw) ? `\\${fnRaw}` : fnRaw;
+    return `${fnLatex} ${body}`.trim();
+  }
+
+  // Matrix <m:m>
+  if (ln === "m") {
+    const rows = findDirectOmmlChildren(el, "mr").map((mr) =>
+      findDirectOmmlChildren(mr, "e")
+        .map((c) => childrenToLatex(c).trim())
+        .join(" & ")
+    );
+    return `\\begin{matrix} ${rows.join(" \\\\ ")} \\end{matrix}`;
+  }
+
+  // GroupChr / Box / Phantom / BorderBox fallback -> recurse into <m:e> or children
+  const eChild = findDirectOmmlChild(el, "e");
+  if (eChild) return childrenToLatex(eChild);
+  return childrenToLatex(el);
+}
+

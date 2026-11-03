@@ -2,7 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { CompetencySelector } from './components/CompetencySelector';
 import { EquipmentSection, EquipmentItem } from './components/EquipmentSection';
-import { SourceMaterialUploader, SgkImageItem } from './components/SourceMaterialUploader';
+import {
+  SourceMaterialUploader,
+  SgkImageItem,
+  LessonPlanGenerationMode,
+  Cv5512LayoutMode,
+  PRESERVABLE_ELEMENTS,
+} from './components/SourceMaterialUploader';
 import { LessonPlanPreview } from './components/LessonPlanPreview';
 import { FrameworkView } from './components/FrameworkModal';
 import { StandardsView } from './components/StandardsView';
@@ -24,9 +30,13 @@ import {
 } from './utils/userAccount';
 import {
   exportLessonPlanToDocx,
+  verifyGeneratedDocxXml,
   FormattingOptions,
   DocxVerificationReport,
 } from './utils/docxExport';
+import { injectIntoDocxWithReport } from './utils/docxInjector';
+import { DocxTemplateProfile } from './utils/fileExtractor';
+import FileSaver from 'file-saver';
 import {
   Sparkles,
   ArrowRight,
@@ -38,6 +48,8 @@ import {
   CheckCircle2,
   FileCode2,
 } from 'lucide-react';
+
+const saveAs = (FileSaver as any).saveAs || FileSaver;
 
 export default function App() {
   const [activeNavTab, setActiveNavTab] = useState<'editor' | 'framework' | 'standards'>('editor');
@@ -90,6 +102,10 @@ export default function App() {
   const [sgkImages, setSgkImages] = useState<SgkImageItem[]>([]);
   const [oldPlanImages, setOldPlanImages] = useState<SgkImageItem[]>([]);
   const [originalDocxBuffer, setOriginalDocxBuffer] = useState<ArrayBuffer | null>(null);
+  const [templateProfile, setTemplateProfile] = useState<DocxTemplateProfile | null>(null);
+  const [planMode, setPlanMode] = useState<LessonPlanGenerationMode>('preserve_old');
+  const [preservedElements, setPreservedElements] = useState<string[]>([...PRESERVABLE_ELEMENTS]);
+  const [cv5512Layout, setCv5512Layout] = useState<Cv5512LayoutMode>('Dạng 2 cột');
   const [formattingOptions, setFormattingOptions] = useState<FormattingOptions>({
     fontName: 'Times New Roman',
     fontSize: 26, // 13pt
@@ -99,6 +115,25 @@ export default function App() {
     margins: { top: 850, bottom: 850, left: 1417, right: 850 },
     mathFormat: 'equation',
   });
+
+  const handleTemplateProfileExtracted = (profile: DocxTemplateProfile | null) => {
+    setTemplateProfile(profile);
+    if (profile) {
+      setFormattingOptions((prev) => ({
+        ...prev,
+        fontName: profile.fontName || prev.fontName,
+        fontSize:
+          profile.fontSize && profile.fontSize >= 20 && profile.fontSize <= 32
+            ? profile.fontSize
+            : prev.fontSize,
+        lineSpacing:
+          profile.lineSpacing && profile.lineSpacing >= 220 && profile.lineSpacing <= 400
+            ? profile.lineSpacing
+            : prev.lineSpacing,
+        margins: profile.margins ? { ...profile.margins } : prev.margins,
+      }));
+    }
+  };
 
   // Generation & DOCX XML Verification status
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -176,6 +211,9 @@ export default function App() {
       setSgkImages([]);
       setOldPlanImages([]);
       setOriginalDocxBuffer(null);
+      setTemplateProfile(null);
+      setPlanMode('preserve_old');
+      setPreservedElements([...PRESERVABLE_ELEMENTS]);
       setGeneratedPlan('');
       setLastVerification(null);
       setCurrentStep(1);
@@ -187,7 +225,7 @@ export default function App() {
     // 1. Check title (auto-detect from old lesson plan if teacher loaded/uploaded document)
     let activeTitle = lessonTitle.trim();
     if (!activeTitle && oldLessonPlanText.trim()) {
-      const match = oldLessonPlanText.match(/(?:BÀI\s+\d+[:\s\.\-]+[^\n\r]+|BÀI\s+[^\n\r]+)/i);
+      const match = oldLessonPlanText.match(/(?:BÀI\s+\d+[:\s.\-]+[^\n\r]+|BÀI\s+[^\n\r]+)/i);
       if (match) {
         activeTitle = match[0].trim().replace(/^#+\s*/, '');
         setLessonTitle(activeTitle);
@@ -238,6 +276,9 @@ export default function App() {
       }));
 
     const competenciesPayload = [...customPayload, ...standardPayload];
+    const effectiveMode: LessonPlanGenerationMode = oldLessonPlanText.trim()
+      ? planMode
+      : 'new_cv5512';
 
     const cleanUserApiKey = sanitizeApiKey(teacherAccount.apiKey);
     const payload = {
@@ -254,6 +295,9 @@ export default function App() {
       studentEquipment,
       digitalTools,
       oldLessonPlanText,
+      planMode: effectiveMode,
+      preservedElements,
+      cv5512Layout,
       sgkImages: sgkImages.map((img) => ({
         id: img.id,
         name: img.name,
@@ -338,6 +382,26 @@ export default function App() {
     if (!generatedPlan) return;
     try {
       setIsExporting(true);
+      const activeMathFormat = formattingOptions.mathFormat === 'latex' ? 'latex' : 'equation';
+      const hasRedBlocks = /\[\[\s*RED:/i.test(generatedPlan);
+
+      // In 'preserve_old' mode with an uploaded .docx file, preserve 100% of the original .docx file directly!
+      if (planMode === 'preserve_old' && originalDocxBuffer && hasRedBlocks) {
+        const { blob } = await injectIntoDocxWithReport(originalDocxBuffer, generatedPlan, {
+          mathFormat: activeMathFormat,
+        });
+        const report = await verifyGeneratedDocxXml(blob, activeMathFormat);
+        setLastVerification(report);
+        const safeTitle = (lessonTitle || 'GiaoAn_NangLucSo')
+          .replace(/[<>:"/\\|?*]+/g, '_')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 70);
+        const modeTag = activeMathFormat === 'latex' ? 'LaTeX' : 'Equation';
+        saveAs(blob, `[NangLucSo_Goc_${modeTag}] ${safeTitle}.docx`);
+        return;
+      }
+
       // Combine genuine textbook images and genuine illustrations from old plan (exclude MathType WMF/EMF previews)
       const exportImages = [
         ...sgkImages.filter((img) => img.mimeType?.startsWith('image/')),
@@ -350,6 +414,8 @@ export default function App() {
         grade,
         images: exportImages,
         formatting: formattingOptions,
+        templateProfile,
+        preserveOriginalHeader: planMode !== 'new_cv5512' && Boolean(oldLessonPlanText.trim()),
       });
       setLastVerification(report);
     } catch (err: any) {
@@ -747,6 +813,13 @@ export default function App() {
                   oldPlanImages={oldPlanImages}
                   setOldPlanImages={setOldPlanImages}
                   setOriginalDocxBuffer={setOriginalDocxBuffer}
+                  onTemplateProfileExtracted={handleTemplateProfileExtracted}
+                  planMode={planMode}
+                  setPlanMode={setPlanMode}
+                  preservedElements={preservedElements}
+                  setPreservedElements={setPreservedElements}
+                  cv5512Layout={cv5512Layout}
+                  setCv5512Layout={setCv5512Layout}
                   phuLuc1Text={phuLuc1Text}
                   setPhuLuc1Text={setPhuLuc1Text}
                   phuLuc3Text={phuLuc3Text}
@@ -1110,6 +1183,11 @@ export default function App() {
                       ...oldPlanImages.filter((img) => !/wmf|emf/i.test(img.mimeType || '')),
                     ]}
                     originalDocxBuffer={originalDocxBuffer}
+                    templateProfile={templateProfile}
+                    planMode={oldLessonPlanText.trim() ? planMode : 'new_cv5512'}
+                    preserveOriginalHeader={
+                      planMode !== 'new_cv5512' && Boolean(oldLessonPlanText.trim())
+                    }
                     formattingOptions={formattingOptions}
                     onChangeFormattingOptions={setFormattingOptions}
                     lastVerification={lastVerification}

@@ -11,8 +11,24 @@ import {
   ShieldCheck,
   Eye,
 } from 'lucide-react';
-import { extractTextFromFile, arrayBufferToBase64 } from '../utils/fileExtractor';
+import {
+  extractTextFromFile,
+  arrayBufferToBase64,
+  DocxTemplateProfile,
+} from '../utils/fileExtractor';
 import { TeacherAccount } from '../utils/userAccount';
+
+export type LessonPlanGenerationMode = 'preserve_old' | 'follow_sample' | 'new_cv5512';
+export type Cv5512LayoutMode = 'Dạng 2 cột' | 'Không chia cột';
+
+export const PRESERVABLE_ELEMENTS = [
+  'Cấu trúc',
+  'Bố cục',
+  'Nội dung',
+  'Hình ảnh',
+  'Công thức toán học',
+  'Phiếu học tập',
+] as const;
 
 export interface SgkImageItem {
   id: string;
@@ -20,6 +36,8 @@ export interface SgkImageItem {
   mimeType: string;
   data: string;
   previewUrl: string;
+  width?: number;
+  height?: number;
 }
 
 interface SourceMaterialUploaderProps {
@@ -34,6 +52,13 @@ interface SourceMaterialUploaderProps {
   oldPlanImages?: SgkImageItem[];
   setOldPlanImages?: React.Dispatch<React.SetStateAction<SgkImageItem[]>>;
   setOriginalDocxBuffer?: (buffer: ArrayBuffer | null) => void;
+  onTemplateProfileExtracted?: (profile: DocxTemplateProfile | null) => void;
+  planMode?: LessonPlanGenerationMode;
+  setPlanMode?: (mode: LessonPlanGenerationMode) => void;
+  preservedElements?: string[];
+  setPreservedElements?: (elements: string[]) => void;
+  cv5512Layout?: Cv5512LayoutMode;
+  setCv5512Layout?: (layout: Cv5512LayoutMode) => void;
   phuLuc1Text?: string;
   setPhuLuc1Text?: (text: string) => void;
   phuLuc3Text?: string;
@@ -52,6 +77,13 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
   oldPlanImages = [],
   setOldPlanImages,
   setOriginalDocxBuffer,
+  onTemplateProfileExtracted,
+  planMode,
+  setPlanMode,
+  preservedElements,
+  setPreservedElements,
+  cv5512Layout,
+  setCv5512Layout,
   phuLuc1Text,
   setPhuLuc1Text,
   phuLuc3Text,
@@ -66,6 +98,21 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [planFileName, setPlanFileName] = useState<string | null>(null);
   const [isReadingPlan, setIsReadingPlan] = useState(false);
+
+  // Local fallbacks if parent doesn't control planMode / preservedElements / cv5512Layout
+  const [localPlanMode, setLocalPlanMode] = useState<LessonPlanGenerationMode>('preserve_old');
+  const [localPreservedElements, setLocalPreservedElements] = useState<string[]>([
+    ...PRESERVABLE_ELEMENTS,
+  ]);
+  const [localCv5512Layout, setLocalCv5512Layout] = useState<Cv5512LayoutMode>('Dạng 2 cột');
+
+  const activePlanMode = planMode !== undefined ? planMode : localPlanMode;
+  const updatePlanMode = setPlanMode || setLocalPlanMode;
+  const activePreservedElements =
+    preservedElements !== undefined ? preservedElements : localPreservedElements;
+  const updatePreservedElements = setPreservedElements || setLocalPreservedElements;
+  const activeCv5512Layout = cv5512Layout !== undefined ? cv5512Layout : localCv5512Layout;
+  const updateCv5512Layout = setCv5512Layout || setLocalCv5512Layout;
 
   // Phụ lục 1 & 3 state
   const [localPhuLuc1, setLocalPhuLuc1] = useState('');
@@ -223,15 +270,28 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
       const result = await extractTextFromFile(file, teacherAccount?.apiKey);
       setOldLessonPlanText(result.text);
       setPlanFileName(file.name);
-      
-      if (file.name.toLowerCase().endsWith('.docx') && setOriginalDocxBuffer) {
-        const buffer = await file.arrayBuffer();
-        setOriginalDocxBuffer(buffer);
-      } else if (setOriginalDocxBuffer) {
-        setOriginalDocxBuffer(null);
+
+      if (file.name.toLowerCase().endsWith('.docx')) {
+        if (setOriginalDocxBuffer) {
+          const buffer = await file.arrayBuffer();
+          setOriginalDocxBuffer(buffer);
+        }
+        if (onTemplateProfileExtracted) {
+          onTemplateProfileExtracted(result.templateProfile || null);
+        }
+        // Automatically ensure preservation mode is active (defaulting to preserve_old if currently new_cv5512)
+        if (activePlanMode === 'new_cv5512') {
+          updatePlanMode('preserve_old');
+        }
+        if (activePreservedElements.length === 0) {
+          updatePreservedElements([...PRESERVABLE_ELEMENTS]);
+        }
+      } else {
+        if (setOriginalDocxBuffer) setOriginalDocxBuffer(null);
+        if (onTemplateProfileExtracted) onTemplateProfileExtracted(null);
       }
 
-      // Preserve all images from the old lesson plan
+      // Preserve all images from the old lesson plan (with exact natural width/height)
       if (result.images && result.images.length > 0) {
         updateOldPlanImages(result.images);
       } else {
@@ -242,6 +302,22 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
     } finally {
       setIsReadingPlan(false);
       if (planFileInputRef.current) planFileInputRef.current.value = '';
+    }
+  };
+
+  const togglePreservedItem = (targetMode: 'preserve_old' | 'follow_sample', item: string) => {
+    if (activePlanMode !== targetMode) {
+      updatePlanMode(targetMode);
+      if (!activePreservedElements.includes(item)) {
+        updatePreservedElements([...activePreservedElements, item]);
+      }
+      return;
+    }
+    if (activePreservedElements.includes(item)) {
+      const next = activePreservedElements.filter((x) => x !== item);
+      updatePreservedElements(next.length > 0 ? next : [item]);
+    } else {
+      updatePreservedElements([...activePreservedElements, item]);
     }
   };
 
@@ -566,6 +642,7 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
                     setPlanFileName(null);
                     updateOldPlanImages([]);
                     if (setOriginalDocxBuffer) setOriginalDocxBuffer(null);
+                    if (onTemplateProfileExtracted) onTemplateProfileExtracted(null);
                   }}
                   className="text-slate-400 hover:text-red-600 p-1 text-xs ml-auto transition-colors"
                   title="Xóa nội dung bài soạn"
@@ -579,7 +656,7 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
               rows={8}
               value={oldLessonPlanText}
               onChange={(e) => setOldLessonPlanText(e.target.value)}
-              placeholder="Dán bài soạn mẫu hoặc tải tệp Word (.docx). Nếu bài soạn của thầy/cô có bảng chia 2 cột, 3 cột (GV - HS, Sản phẩm...) và hình ảnh minh họa, hệ thống sẽ bảo đảm giữ nguyên 100% định dạng chia cột và giữ nguyên mọi hình ảnh trong bản xuất bản..."
+              placeholder="Dán bài soạn mẫu hoặc tải tệp Word (.docx). Nếu bài soạn của thầy/cô có bảng chia 2 cột, 3 cột (GV - HS, Sản phẩm...), công thức Equation, hình ảnh minh họa và Phiếu học tập, hệ thống sẽ bảo toàn 100% trong bản xuất bản..."
               className="w-full text-xs font-mono p-3 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 leading-relaxed"
             />
 
@@ -626,59 +703,199 @@ export const SourceMaterialUploader: React.FC<SourceMaterialUploaderProps> = ({
             )}
           </div>
 
-          <div className="pt-2">
-            <label className="text-xs font-semibold text-slate-700 block mb-1">
-              Ghi chú thêm về yêu cầu tổ chức dạy học:
-            </label>
-            <input
-              type="text"
-              value={customNote}
-              onChange={(e) => setCustomNote(e.target.value)}
-              placeholder="Nhập hoặc chọn gợi ý bên dưới..."
-              className="w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 mb-2"
-            />
-            
+          <div className="pt-2 space-y-2.5">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                Chế độ kế thừa giáo án gốc / mẫu &amp; ghi chú tổ chức dạy học:
+              </label>
+              <input
+                type="text"
+                value={customNote}
+                onChange={(e) => setCustomNote(e.target.value)}
+                placeholder="Ghi chú riêng thêm của Thầy/Cô (nếu có)..."
+                className="w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
             <div className="space-y-2">
-              <div className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Thêm năng lực số nhưng giữ nguyên:</div>
-              <div className="flex flex-wrap gap-1.5">
-                {['Cấu trúc', 'Bố cục', 'Nội dung', 'Hình ảnh', 'Công thức toán học', 'Phiếu học tập'].map((opt) => (
+              {/* TAB 1: THÊM NĂNG LỰC SỐ NHƯNG GIỮ NGUYÊN */}
+              <div
+                onClick={() => updatePlanMode('preserve_old')}
+                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
+                  activePlanMode === 'preserve_old'
+                    ? 'bg-emerald-50/80 border-emerald-400 ring-1 ring-emerald-500/20'
+                    : 'bg-white border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                        activePlanMode === 'preserve_old'
+                          ? 'bg-emerald-600 text-white'
+                          : 'border border-slate-300 bg-white'
+                      }`}
+                    >
+                      {activePlanMode === 'preserve_old' && '✓'}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide">
+                      Thêm năng lực số nhưng giữ nguyên:
+                    </span>
+                  </div>
                   <button
-                    key={'giu_nguyen_'+opt}
                     type="button"
-                    onClick={() => setCustomNote(customNote ? `${customNote}, giữ nguyên ${opt.toLowerCase()}` : `Giữ nguyên ${opt.toLowerCase()}`)}
-                    className="px-2 py-1 text-[10px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updatePlanMode('preserve_old');
+                      updatePreservedElements([...PRESERVABLE_ELEMENTS]);
+                    }}
+                    className="text-[10px] font-semibold text-emerald-700 hover:underline"
                   >
-                    + {opt}
+                    Chọn tất cả
                   </button>
-                ))}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESERVABLE_ELEMENTS.map((opt) => {
+                    const selected =
+                      activePlanMode === 'preserve_old' && activePreservedElements.includes(opt);
+                    return (
+                      <button
+                        key={'giu_nguyen_' + opt}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePreservedItem('preserve_old', opt);
+                        }}
+                        className={`px-2 py-1 text-[10px] font-semibold rounded-md border transition-colors ${
+                          selected
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {selected ? `✓ ${opt}` : `+ ${opt}`}
+                      </button>
+                    );
+                  })}
+                </div>
+                {activePlanMode === 'preserve_old' && (
+                  <p className="text-[10px] text-emerald-800 mt-1.5 leading-snug">
+                    Bảo toàn nguyên bản giáo án đính kèm (định dạng, bố cục, nội dung, hình ảnh, công thức, phiếu học tập). Chỉ chèn thêm các mục Năng lực số chữ màu đỏ vào đúng vị trí.
+                  </p>
+                )}
               </div>
 
-              <div className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mt-2">Soạn mới bám sát giáo án cũ:</div>
-              <div className="flex flex-wrap gap-1.5">
-                {['Cấu trúc', 'Bố cục', 'Nội dung', 'Hình ảnh', 'Công thức toán học', 'Phiếu học tập'].map((opt) => (
+              {/* TAB 2: SOẠN MỚI BÁM SÁT GIÁO ÁN CŨ / GIÁO ÁN MẪU */}
+              <div
+                onClick={() => updatePlanMode('follow_sample')}
+                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
+                  activePlanMode === 'follow_sample'
+                    ? 'bg-indigo-50/80 border-indigo-400 ring-1 ring-indigo-500/20'
+                    : 'bg-white border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                        activePlanMode === 'follow_sample'
+                          ? 'bg-indigo-600 text-white'
+                          : 'border border-slate-300 bg-white'
+                      }`}
+                    >
+                      {activePlanMode === 'follow_sample' && '✓'}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide">
+                      Soạn mới bám sát giáo án cũ:
+                    </span>
+                  </div>
                   <button
-                    key={'bam_sat_'+opt}
                     type="button"
-                    onClick={() => setCustomNote(customNote ? `${customNote}, bám sát ${opt.toLowerCase()} cũ` : `Bám sát ${opt.toLowerCase()} cũ`)}
-                    className="px-2 py-1 text-[10px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updatePlanMode('follow_sample');
+                      updatePreservedElements([...PRESERVABLE_ELEMENTS]);
+                    }}
+                    className="text-[10px] font-semibold text-indigo-700 hover:underline"
                   >
-                    + {opt}
+                    Chọn tất cả
                   </button>
-                ))}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESERVABLE_ELEMENTS.map((opt) => {
+                    const selected =
+                      activePlanMode === 'follow_sample' && activePreservedElements.includes(opt);
+                    return (
+                      <button
+                        key={'bam_sat_' + opt}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePreservedItem('follow_sample', opt);
+                        }}
+                        className={`px-2 py-1 text-[10px] font-semibold rounded-md border transition-colors ${
+                          selected
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {selected ? `✓ ${opt}` : `+ ${opt}`}
+                      </button>
+                    );
+                  })}
+                </div>
+                {activePlanMode === 'follow_sample' && (
+                  <p className="text-[10px] text-indigo-800 mt-1.5 leading-snug">
+                    Soạn theo đúng khuôn mẫu 1:1 của giáo án cũ / giáo án mẫu đính kèm (giữ đúng khung bảng chia cột, tiêu đề, kiểu công thức, vị trí hình ảnh &amp; mẫu Phiếu học tập).
+                  </p>
+                )}
               </div>
 
-              <div className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mt-2">Soạn mới hoàn toàn bám sát SGK & CV5512:</div>
-              <div className="flex flex-wrap gap-1.5">
-                {['Dạng 2 cột', 'Không chia cột'].map((opt) => (
-                  <button
-                    key={'kieu_'+opt}
-                    type="button"
-                    onClick={() => setCustomNote(customNote ? `${customNote}, soạn mới hoàn toàn dạng ${opt.toLowerCase()}` : `Soạn mới hoàn toàn dạng ${opt.toLowerCase()}`)}
-                    className="px-2 py-1 text-[10px] font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded border border-indigo-200 transition-colors"
+              {/* TAB 3: SOẠN MỚI HOÀN TOÀN BÁM SÁT SGK & CV5512 */}
+              <div
+                onClick={() => updatePlanMode('new_cv5512')}
+                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
+                  activePlanMode === 'new_cv5512'
+                    ? 'bg-amber-50/70 border-amber-400 ring-1 ring-amber-500/20'
+                    : 'bg-white border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span
+                    className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                      activePlanMode === 'new_cv5512'
+                        ? 'bg-amber-600 text-white'
+                        : 'border border-slate-300 bg-white'
+                    }`}
                   >
-                    + {opt}
-                  </button>
-                ))}
+                    {activePlanMode === 'new_cv5512' && '✓'}
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide">
+                    Soạn mới hoàn toàn bám sát SGK &amp; CV5512:
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(['Dạng 2 cột', 'Không chia cột'] as Cv5512LayoutMode[]).map((opt) => {
+                    const selected = activePlanMode === 'new_cv5512' && activeCv5512Layout === opt;
+                    return (
+                      <button
+                        key={'kieu_' + opt}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          updatePlanMode('new_cv5512');
+                          updateCv5512Layout(opt);
+                        }}
+                        className={`px-2.5 py-1 text-[10px] font-semibold rounded-md border transition-colors ${
+                          selected
+                            ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                            : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                        }`}
+                      >
+                        {selected ? `✓ ${opt}` : `+ ${opt}`}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
